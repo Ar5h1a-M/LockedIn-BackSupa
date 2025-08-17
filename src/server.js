@@ -13,7 +13,9 @@ app.get("/", (_req, res) => {
   res.json({ ok: true, service: "LockedIn backend", ts: Date.now() });
 });
 
+console.log("Loading auth routes..."); // Add this debug line
 app.use("/api/auth", authRoutes);
+console.log("Auth routes loaded successfully!"); // Add this debug line
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
