@@ -11,22 +11,27 @@ const supabase = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } }
 );
 
-// LOGIN: Check if user exists and was created through signup flow
+// LOGIN: Check if user exists and has completed signup
 router.post("/login", async (req, res) => {
   try {
+    console.log("Login endpoint hit");
+    
     const authHeader = req.headers.authorization || "";
     const accessToken = authHeader.startsWith("Bearer ")
       ? authHeader.slice(7)
       : null;
 
     if (!accessToken) {
+      console.log("No access token provided");
       return res.status(400).json({ error: "Missing access token" });
     }
 
     // Verify token → maps directly to auth.users
     const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    console.log("Auth user lookup:", { user: user?.id, error });
 
     if (error || !user) {
+      console.log("Invalid token or no user");
       return res.status(401).json({ error: "Invalid or expired token" });
     }
 
@@ -37,9 +42,11 @@ router.post("/login", async (req, res) => {
       .eq('id', user.id)
       .single();
 
+    console.log("Profile lookup:", { profile: profile?.id, error: profileError });
+
     if (profileError && profileError.code === 'PGRST116') {
       // Profile doesn't exist - user needs to sign up first
-      // Delete the auth user since they accessed login directly
+      console.log("No profile found, deleting auth user");
       await supabase.auth.admin.deleteUser(user.id);
       return res.status(401).json({ error: "User not found. Please sign up first." });
     }
@@ -50,6 +57,7 @@ router.post("/login", async (req, res) => {
     }
 
     // User exists and has completed signup
+    console.log("Login successful for user:", user.id);
     return res.json({
       message: "Login successful",
       user: { id: user.id, email: user.email, full_name: user.user_metadata?.full_name ?? null }
@@ -63,17 +71,23 @@ router.post("/login", async (req, res) => {
 // SIGNUP: Create profile for new OAuth users
 router.post("/signup", async (req, res) => {
   try {
+    console.log("Signup endpoint hit");
+    
     const authHeader = req.headers.authorization || "";
     const accessToken = authHeader.startsWith("Bearer ")
       ? authHeader.slice(7)
       : null;
 
     if (!accessToken) {
+      console.log("No access token provided");
       return res.status(400).json({ error: "Missing access token" });
     }
 
     const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    console.log("Auth user lookup:", { user: user?.id, error });
+    
     if (error || !user) {
+      console.log("Invalid token or no user");
       return res.status(401).json({ error: "Invalid or expired token" });
     }
 
@@ -84,12 +98,16 @@ router.post("/signup", async (req, res) => {
       .eq('id', user.id)
       .single();
 
+    console.log("Existing profile check:", { profile: existingProfile?.id, error: profileError });
+
     if (existingProfile) {
+      console.log("Profile already exists");
       return res.status(400).json({ error: "User already exists. Please login instead." });
     }
 
     // Profile doesn't exist, create it
     if (profileError && profileError.code === 'PGRST116') {
+      console.log("Creating new profile for user:", user.id);
       const { error: insertError } = await supabase
         .from('profiles')
         .insert([
@@ -106,6 +124,7 @@ router.post("/signup", async (req, res) => {
         return res.status(500).json({ error: "Failed to create user profile" });
       }
 
+      console.log("Signup successful for user:", user.id);
       return res.json({
         message: "Signup successful",
         user: { id: user.id, email: user.email, full_name: user.user_metadata?.full_name ?? null }
