@@ -1,112 +1,85 @@
+// src/routes/auth.js
 import express from "express";
-import supabase from "../utils/supabaseClient.js";
+import { createClient } from "@supabase/supabase-js";
 
 const router = express.Router();
 
 /**
+ * IMPORTANT:
+ * Use the service role key on the server so we can:
+ *  - verify tokens (auth.getUser)
+ *  - read your app tables regardless of RLS
+ *
+ * Never expose SERVICE_ROLE in the browser.
+ */
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  {
+    auth: { autoRefreshToken: false, persistSession: false },
+  }
+);
+
+/**
  * POST /api/auth/login
- *
- * Frontend sends the Supabase access token (from Google OAuth or email/password)
- * in the Authorization header: "Bearer <access_token>".
- *
- * We verify the token with Supabase, confirm the user exists in auth.users,
- * and (optionally) upsert a public users row for convenience.
+ * Frontend sends the Supabase access token (from Google OAuth)
+ *   Authorization: Bearer <access_token>
+ * We verify it, then ensure the user already exists in public.users.
+ * If not present, we DENY (403) instead of creating them.
  */
 router.post("/login", async (req, res) => {
   try {
-    // Try Authorization header first, fallback to body.access_token
     const authHeader = req.headers.authorization || "";
-    const access_token = authHeader.startsWith("Bearer ")
+    const accessToken = authHeader.startsWith("Bearer ")
       ? authHeader.slice(7)
-      : req.body?.access_token;
+      : (req.body && req.body.access_token) || null;
 
-    if (!access_token) {
+    if (!accessToken) {
       return res.status(400).json({ error: "Missing access token" });
     }
 
-    // Verify token with Supabase and get user
-    const { data: userRes, error: getUserErr } = await supabase.auth.getUser(access_token);
-    if (getUserErr || !userRes?.user) {
+    // 1) Verify token with Supabase
+    const { data: userRes, error: getUserErr } = await supabase.auth.getUser(accessToken);
+    if (getUserErr || !userRes || !userRes.user) {
       return res.status(401).json({ error: "Invalid or expired token" });
     }
-
     const user = userRes.user; // { id, email, user_metadata, ... }
 
-    // (Optional) ensure there is a row in your public users table
-    // Adjust table/columns to your schema (profiles/users).
-    // This requires RLS policy or service role on your server client.
-    const { error: upsertErr } = await supabase
+    // 2) Enforce: must already exist in your app's users table
+    const { data: existing, error: selErr } = await supabase
       .from("users")
-      .upsert(
-        {
-          id: user.id,
-          email: user.email,
-          full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
-        },
-        { onConflict: "id" }
-      );
+      .select("id")
+      .eq("id", user.id)
+      .maybeSingle();
 
-    if (upsertErr) {
-      // Not fatal for login; log and continue.
-      console.error("Upsert users error:", upsertErr);
+    if (selErr) {
+      console.error("users select error:", selErr);
+      return res.status(500).json({ error: "Database error" });
     }
 
-    // OK
+    if (!existing) {
+      // Unknown account → block
+      return res.status(403).json({ error: "Not authorized for this app" });
+    }
+
+    // (Optional) Allowlist or domain check:
+    // if (!user.email || !user.email.endsWith("@youruni.ac.za")) {
+    //   return res.status(403).json({ error: "Email domain not allowed" });
+    // }
+
     return res.json({
       message: "Login verified",
       user: {
         id: user.id,
-        email: user.email,
-        full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
+        email: user.email || null,
+        full_name:
+          (user.user_metadata && (user.user_metadata.full_name || user.user_metadata.name)) ||
+          null,
       },
     });
   } catch (err) {
-    console.error(err);
+    console.error("Login verify error:", err);
     return res.status(500).json({ error: "Something went wrong" });
-  }
-});
-
-/**
- * POST /api/auth/signup
- * Creates a Supabase auth user (email/password) and (optionally) inserts
- * a row in public users table.
- *
- * Body: { email, password, full_name? }
- */
-router.post("/signup", async (req, res) => {
-  const { email, password, full_name } = req.body || {};
-
-  if (!email || !password) {
-    return res.status(400).json({ error: "Email and password are required" });
-  }
-
-  try {
-    const { data, error } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name: full_name || null },
-    });
-
-    if (error) throw error;
-
-    const created = data?.user;
-    if (created?.id) {
-      // Optional insert in your public users table
-      const { error: insertErr } = await supabase.from("users").insert([
-        {
-          id: created.id,
-          email: created.email,
-          full_name: full_name || null,
-        },
-      ]);
-      if (insertErr) console.error("Insert users error:", insertErr);
-    }
-
-    return res.json({ message: "User created successfully", user: created });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Signup failed." });
   }
 });
 
