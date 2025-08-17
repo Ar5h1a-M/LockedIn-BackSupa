@@ -27,10 +27,10 @@ router.post("/login", async (req, res) => {
     const { data: { user }, error } = await supabase.auth.getUser(accessToken);
 
     if (error || !user) {
-      return res.status(401).json({ error: "Invalid or expired token" });
+      return res.status(401).json({ error: "User not found. Please sign up first." });
     }
 
-    // If user exists in auth.users, allow through
+    // If user exists in auth.users, allow login
     return res.json({
       message: "Login successful",
       user: { id: user.id, email: user.email, full_name: user.user_metadata?.full_name ?? null }
@@ -41,7 +41,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// SIGNUP: user must *not* already exist in auth.users
+// SIGNUP: accept new users from OAuth
 router.post("/signup", async (req, res) => {
   try {
     const authHeader = req.headers.authorization || "";
@@ -54,22 +54,13 @@ router.post("/signup", async (req, res) => {
     }
 
     const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-    if (error) {
+    if (error || !user) {
       return res.status(401).json({ error: "Invalid or expired token" });
     }
 
-    if (!user) {
-      return res.status(403).json({ error: "No Supabase user found. Please try Google sign-up again." });
-    }
-
-    // If already exists in auth.users → block
-    // (getUser guarantees user exists in auth.users if no error)
-    if (user) {
-      return res.status(400).json({ error: "User already exists" });
-    }
-
-    // In Supabase, OAuth (Google) already inserts into auth.users automatically
-    // So we just return success
+    // For OAuth (Google), the user is automatically created in auth.users
+    // We can add additional logic here if needed (like creating a profile record)
+    
     return res.json({
       message: "Signup successful",
       user: { id: user.id, email: user.email, full_name: user.user_metadata?.full_name ?? null }
