@@ -59,7 +59,7 @@ router.post("/login", async (req, res) => {
 
     if (!existing) {
       // Unknown account → block
-      return res.status(403).json({ error: "Not authorized for this app" });
+      return res.status(403).json({ error: "Account not founf, Please sign up" });
     }
 
     // (Optional) Allowlist or domain check:
@@ -79,6 +79,69 @@ router.post("/login", async (req, res) => {
     });
   } catch (err) {
     console.error("Login verify error:", err);
+    return res.status(500).json({ error: "Something went wrong" });
+  }
+});
+
+router.post("/signup", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || "";
+    const accessToken = authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7)
+      : (req.body && req.body.access_token) || null;
+
+    if (!accessToken) {
+      return res.status(400).json({ error: "Missing access token" });
+    }
+
+    // 1) Verify token with Supabase
+    const { data: userRes, error: getUserErr } = await supabase.auth.getUser(accessToken);
+    if (getUserErr || !userRes?.user) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+    const user = userRes.user; // comes from Supabase auth.users
+
+    // 2) Check if user already exists in your app's users table
+    const { data: existing, error: selErr } = await supabase
+      .from("users")
+      .select("id")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (selErr) {
+      console.error("users select error:", selErr);
+      return res.status(500).json({ error: "Database error" });
+    }
+
+    if (existing) {
+      return res.json({
+        message: "User already registered",
+        user: { id: user.id, email: user.email, full_name: user.user_metadata?.full_name ?? null }
+      });
+    }
+
+    // 3) Insert user into your app's users table
+    const { error: insErr } = await supabase
+      .from("users")
+      .insert([{
+        id: user.id, // matches auth.users id
+        email: user.email,
+        full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
+        created_at: new Date().toISOString()
+      }]);
+
+    if (insErr) {
+      console.error("users insert error:", insErr);
+      return res.status(500).json({ error: "Failed to create user" });
+    }
+
+    return res.json({
+      message: "Signup successful",
+      user: { id: user.id, email: user.email, full_name: user.user_metadata?.full_name ?? null }
+    });
+
+  } catch (err) {
+    console.error("Signup error:", err);
     return res.status(500).json({ error: "Something went wrong" });
   }
 });
