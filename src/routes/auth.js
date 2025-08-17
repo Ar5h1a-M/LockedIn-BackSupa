@@ -11,7 +11,7 @@ const supabase = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } }
 );
 
-// LOGIN: must exist in auth.users
+// LOGIN: Check if user exists and was created through signup flow
 router.post("/login", async (req, res) => {
   try {
     const authHeader = req.headers.authorization || "";
@@ -27,10 +27,29 @@ router.post("/login", async (req, res) => {
     const { data: { user }, error } = await supabase.auth.getUser(accessToken);
 
     if (error || !user) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+
+    // Check if user has a profile record (indicates they completed signup)
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError && profileError.code === 'PGRST116') {
+      // Profile doesn't exist - user needs to sign up first
+      // Delete the auth user since they accessed login directly
+      await supabase.auth.admin.deleteUser(user.id);
       return res.status(401).json({ error: "User not found. Please sign up first." });
     }
 
-    // If user exists in auth.users, allow login
+    if (profileError) {
+      console.error("Profile check error:", profileError);
+      return res.status(500).json({ error: "Database error" });
+    }
+
+    // User exists and has completed signup
     return res.json({
       message: "Login successful",
       user: { id: user.id, email: user.email, full_name: user.user_metadata?.full_name ?? null }
@@ -41,7 +60,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// SIGNUP: accept new users from OAuth
+// SIGNUP: Create profile for new OAuth users
 router.post("/signup", async (req, res) => {
   try {
     const authHeader = req.headers.authorization || "";
@@ -58,13 +77,44 @@ router.post("/signup", async (req, res) => {
       return res.status(401).json({ error: "Invalid or expired token" });
     }
 
-    // For OAuth (Google), the user is automatically created in auth.users
-    // We can add additional logic here if needed (like creating a profile record)
-    
-    return res.json({
-      message: "Signup successful",
-      user: { id: user.id, email: user.email, full_name: user.user_metadata?.full_name ?? null }
-    });
+    // Check if profile already exists
+    const { data: existingProfile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', user.id)
+      .single();
+
+    if (existingProfile) {
+      return res.status(400).json({ error: "User already exists. Please login instead." });
+    }
+
+    // Profile doesn't exist, create it
+    if (profileError && profileError.code === 'PGRST116') {
+      const { error: insertError } = await supabase
+        .from('profiles')
+        .insert([
+          {
+            id: user.id,
+            email: user.email,
+            full_name: user.user_metadata?.full_name ?? null,
+            created_at: new Date().toISOString()
+          }
+        ]);
+
+      if (insertError) {
+        console.error("Profile creation error:", insertError);
+        return res.status(500).json({ error: "Failed to create user profile" });
+      }
+
+      return res.json({
+        message: "Signup successful",
+        user: { id: user.id, email: user.email, full_name: user.user_metadata?.full_name ?? null }
+      });
+    }
+
+    // Other database error
+    console.error("Unexpected profile error:", profileError);
+    return res.status(500).json({ error: "Database error" });
   } catch (err) {
     console.error("Signup error:", err);
     return res.status(500).json({ error: "Something went wrong" });
