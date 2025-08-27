@@ -33,12 +33,12 @@ It handles authentication (via Supabase Auth + Google OAuth) and user profile ma
 
 	SUPABASE_SERVICE_ROLE_KEY=eyJh………
 
-	PORT=3000
+	PORT=4000
 3. Start the dev server:
    ```bash
 	npm start
 4. verify its running
-	go to :http://localhost:3000/
+	go to :http://localhost:4000/
 
 
 POST /api/auth/signup
@@ -58,6 +58,7 @@ POST /api/auth/login
 	If not → deletes auth user & returns 401 User not found.
 
 	If yes → returns success + user info.
+
 
 
 
