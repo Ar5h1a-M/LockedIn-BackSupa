@@ -82,20 +82,16 @@ router.post("/signup", async (req, res) => {
     if (error || !user) return res.status(401).json({ error: "Invalid or expired token" });
 
     const { degree, modules, interest } = req.body;
-    console.log(degree);
 
-    // Check if profile already exists
-    const { data: existingProfile } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("id", user.id)
-      .single();
-
-    if (existingProfile) {
-      return res.status(400).json({ error: "User already exists. Please login instead." });
+    // Validate required fields
+    if (!degree || !interest) {
+      return res.status(400).json({ error: "Degree and interest are required" });
     }
 
-    // Insert new profile with extra columns
+    // Make sure modules is an array of non-empty strings
+    const modulesArray = Array.isArray(modules) ? modules.filter(m => m.trim() !== "") : [];
+
+    // Insert into Supabase
     const { error: insertError } = await supabase
       .from("profiles")
       .insert([
@@ -104,13 +100,16 @@ router.post("/signup", async (req, res) => {
           email: user.email,
           full_name: user.user_metadata?.full_name ?? null,
           degree,
-          modules: modulesArray, // works if the column is text[]
+          modules: modulesArray, // must match column type in Supabase
           interest,
           created_at: new Date().toISOString(),
         },
       ]);
 
-    if (insertError) return res.status(500).json({ error: "Failed to create user profile" });
+    if (insertError) {
+      console.error("Insert error:", insertError);
+      return res.status(500).json({ error: "Failed to create user profile" });
+    }
 
     return res.json({ message: "Signup successful" });
   } catch (err) {
