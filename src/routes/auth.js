@@ -82,6 +82,7 @@ router.post("/signup", async (req, res) => {
     if (error || !user) return res.status(401).json({ error: "Invalid or expired token" });
 
     const { degree, modules, interest } = req.body;
+    console.log(degree);
 
     // Check if profile already exists
     const { data: existingProfile } = await supabase
@@ -103,7 +104,7 @@ router.post("/signup", async (req, res) => {
           email: user.email,
           full_name: user.user_metadata?.full_name ?? null,
           degree,
-          modules,  // store as array column in Supabase
+          modules: modulesArray, // works if the column is text[]
           interest,
           created_at: new Date().toISOString(),
         },
