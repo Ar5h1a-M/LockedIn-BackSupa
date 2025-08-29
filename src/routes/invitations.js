@@ -1,11 +1,10 @@
+
+
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 
 const router = express.Router();
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 async function getUser(req) {
   const authHeader = req.headers.authorization || "";
@@ -82,31 +81,39 @@ router.put("/invitations/:id", async (req, res, next) => {
   try {
     const user = await getUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-
     const { id } = req.params;
     const { status } = req.body || {};
-    if (!["accepted", "declined"].includes(status)) {
+    if (!["accepted","declined"].includes(status)) {
       return res.status(400).json({ error: "Invalid status" });
     }
 
     const { data: invite, error: fErr } = await supabase
       .from("invitations")
-      .select("recipient_id, status")
-      .eq("id", id)
-      .single();
+      .select("sender_id, recipient_id, status")
+      .eq("id", id).single();
     if (fErr) throw fErr;
     if (!invite) return res.status(404).json({ error: "Invitation not found" });
     if (invite.recipient_id !== user.id) return res.status(403).json({ error: "Not authorized" });
-    if (invite.status !== "pending") return res.status(400).json({ error: "Already handled" });
+    if (invite.status !== "pending") return res.status(400).json({ error: "Invitation already handled" });
 
-    const { error } = await supabase.from("invitations").update({ status }).eq("id", id);
-    if (error) throw error;
+    // Update invitation
+    const { error: uErr } = await supabase
+      .from("invitations")
+      .update({ status })
+      .eq("id", id);
+    if (uErr) throw uErr;
+
+    // If accepted → create friendship edges both ways (idempotent upserts)
+    if (status === "accepted") {
+      const a = { user_id: invite.sender_id, friend_id: invite.recipient_id };
+      const b = { user_id: invite.recipient_id, friend_id: invite.sender_id };
+
+      // Upserts (ignore duplicates)
+      await supabase.from("friendships").upsert([a, b], { onConflict: "user_id,friend_id" });
+    }
 
     res.json({ message: `Invitation ${status}` });
-  } catch (e) {
-    console.error("[/api/invitations/:id] error:", e);
-    next(e);
-  }
+  } catch (e) { next(e); }
 });
 
 export default router;

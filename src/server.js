@@ -6,6 +6,8 @@ import cors from "cors";
 import authRoutes from "./routes/auth.js";
 import searchRoutes from "./routes/search.js";
 import invitationRoutes from "./routes/invitations.js";
+import profileRoutes from "./routes/profile.js";
+import groupRoutes from "./routes/groups.js";
 
 const app = express();
 app.use(cors());
@@ -22,7 +24,9 @@ console.log("Supabase URL:", process.env.SUPABASE_URL);
 console.log("Loading routes...");
 app.use("/api/auth", authRoutes);
 app.use("/api", searchRoutes);        // search.js defines /search and /invite
-app.use("/api/invitations", invitationRoutes); // invitations.js defines /received, /sent, PUT /:id
+app.use("/api/", invitationRoutes); // invitations.js defines /received, /sent, PUT /:id
+app.use("/api", profileRoutes);      // /api/profile, /api/profile/update, /api/friends
+app.use("/api", groupRoutes);        // /api/groups/* and /api/group-invitations/*
 console.log("Routes loaded successfully!");
 
 // ... your existing imports and app setup ...
