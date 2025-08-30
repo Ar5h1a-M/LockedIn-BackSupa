@@ -1,7 +1,7 @@
 // routes/sessions.js
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
-
+import nodemailer from "nodemailer";
 const router = express.Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
@@ -25,6 +25,16 @@ async function requireGroupMember(group_id, user_id) {
   return !!data;
 }
 
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: process.env.SMTP_PORT || 465,
+  secure: true, // true for 465, false for 587
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
 /** Create a session (planner) */
 router.post("/groups/:groupId/sessions", async (req, res, next) => {
   try {
@@ -38,11 +48,34 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
 
     if (!start_at) return res.status(400).json({ error: "start_at is required" });
 
+    const starts = new Date(start_at);
+    if (isNaN(starts.getTime())) return res.status(400).json({ error: "Invalid start_at" });
+    if (starts < new Date()) return res.status(400).json({ error: "start_at cannot be in the past" });
+
+
     const { data, error } = await supabase
       .from("sessions")
       .insert([{ group_id, creator_id: user.id, start_at, venue, topic, time_goal_minutes, content_goal }])
       .select("*")
       .single();
+    // After insert
+    const { data: members } = await supabase
+    .from("group_members")
+    .select("profiles(email, full_name)")
+    .eq("group_id", group_id);
+
+    for (const m of members) {
+    if (m.profiles.email !== user.email) {
+        await transporter.sendMail({
+        from: process.env.SMTP_USER,
+        to: m.profiles.email,
+        subject: `New Study Session in your group`,
+        text: `Hi ${m.profiles.full_name},\n\nA new study session has been scheduled:\n
+    Date/Time: ${start_at}\nVenue: ${venue}\nTopic: ${topic}\nTime goal: ${time_goal_minutes} mins\nContent goal: ${content_goal}\n\nJoin your group to participate!`,
+        });
+    }
+    }
+
     if (error) throw error;
     res.json({ session: data });
   } catch (e) { next(e); }
@@ -68,31 +101,29 @@ router.get("/groups/:groupId/sessions", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Get recent group chat (optionally session-scoped) */
-router.get("/groups/:groupId/messages", async (req, res, next) => {
+router.delete("/groups/:groupId/sessions/:sessionId", async (req, res, next) => {
   try {
     const user = await getUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
-    const group_id = req.params.groupId;
-    const { sessionId, limit = 100 } = req.query;
+    const { groupId, sessionId } = req.params;
 
-    const isMember = await requireGroupMember(group_id, user.id);
+    // Must be member
+    const isMember = await requireGroupMember(groupId, user.id);
     if (!isMember) return res.status(403).json({ error: "Not a group member" });
 
-    let query = supabase
-      .from("group_messages")
-      .select("id, group_id, session_id, sender_id, content, attachment_url, created_at")
-      .eq("group_id", group_id)
-      .order("created_at", { ascending: false })
-      .limit(Number(limit));
+    // Must be creator
+    const { data: s, error: sErr } = await supabase
+      .from("sessions").select("id, creator_id").eq("id", sessionId).single();
+    if (sErr) throw sErr;
+    if (!s) return res.status(404).json({ error: "Session not found" });
+    if (s.creator_id !== user.id) return res.status(403).json({ error: "Only the creator can delete" });
 
-    if (sessionId) query = query.eq("session_id", sessionId);
-
-    const { data, error } = await query;
+    const { error } = await supabase.from("sessions").delete().eq("id", sessionId);
     if (error) throw error;
-    res.json({ messages: (data || []).reverse() }); // reverse to chronological
+    res.json({ message: "Session deleted" });
   } catch (e) { next(e); }
 });
+
 
 /** Post a message (text and/or attachment_url) */
 router.post("/groups/:groupId/messages", async (req, res, next) => {
@@ -119,5 +150,42 @@ router.post("/groups/:groupId/messages", async (req, res, next) => {
     res.json({ message: data });
   } catch (e) { next(e); }
 });
+
+// GET /groups/:groupId/messages
+router.get("/groups/:groupId/messages", async (req, res, next) => {
+  try {
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    const group_id = req.params.groupId;
+    const { sessionId, limit = 100 } = req.query;
+
+    const isMember = await requireGroupMember(group_id, user.id);
+    if (!isMember) return res.status(403).json({ error: "Not a group member" });
+
+    let q = supabase
+      .from("group_messages")
+      .select("id, group_id, session_id, sender_id, content, attachment_url, created_at")
+      .eq("group_id", group_id)
+      .order("created_at", { ascending: false })
+      .limit(Number(limit));
+    if (sessionId) q = q.eq("session_id", sessionId);
+
+    const { data: msgs, error } = await q;
+    if (error) throw error;
+
+    const senderIds = [...new Set((msgs||[]).map(m => m.sender_id))];
+    let nameById = {};
+    if (senderIds.length) {
+      const { data: profs, error: pErr } = await supabase
+        .from("profiles").select("id, full_name").in("id", senderIds);
+      if (pErr) throw pErr;
+      nameById = Object.fromEntries((profs||[]).map(p => [p.id, p.full_name]));
+    }
+
+    const enriched = (msgs||[]).map(m => ({ ...m, sender_name: nameById[m.sender_id] || null }));
+    res.json({ messages: enriched.reverse() });
+  } catch (e) { next(e); }
+});
+
 
 export default router;
