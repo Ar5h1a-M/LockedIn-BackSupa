@@ -28,18 +28,30 @@ async function requireGroupMember(group_id, user_id) {
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: process.env.SMTP_PORT || 465,
-  secure: true, // true for 465, false for 587
+  secure: true,
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
+  debug:true,
+  tls: {
+    rejectUnauthorized: false, // allow self-signed / strict certs
+  },
 });
+
+transporter.verify((error, success) => {
+  if (error) console.log("Test failed:", error);
+  else console.log("Server is ready to send messages");
+});
+
+
 
 /** Create a session (planner) */
 router.post("/groups/:groupId/sessions", async (req, res, next) => {
   try {
     const user = await getUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
+
     const group_id = req.params.groupId;
     const { start_at, venue, topic, time_goal_minutes, content_goal } = req.body || {};
 
@@ -52,34 +64,61 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
     if (isNaN(starts.getTime())) return res.status(400).json({ error: "Invalid start_at" });
     if (starts < new Date()) return res.status(400).json({ error: "start_at cannot be in the past" });
 
-
-    const { data, error } = await supabase
+    // Insert session
+    const { data: sessionData, error } = await supabase
       .from("sessions")
       .insert([{ group_id, creator_id: user.id, start_at, venue, topic, time_goal_minutes, content_goal }])
       .select("*")
       .single();
-    // After insert
-    const { data: members } = await supabase
-    .from("group_members")
-    .select("profiles(email, full_name)")
-    .eq("group_id", group_id);
-
-    for (const m of members) {
-    if (m.profiles.email !== user.email) {
-        await transporter.sendMail({
-        from: process.env.SMTP_USER,
-        to: m.profiles.email,
-        subject: `New Study Session in your group`,
-        text: `Hi ${m.profiles.full_name},\n\nA new study session has been scheduled:\n
-    Date/Time: ${start_at}\nVenue: ${venue}\nTopic: ${topic}\nTime goal: ${time_goal_minutes} mins\nContent goal: ${content_goal}\n\nJoin your group to participate!`,
-        });
-    }
-    }
 
     if (error) throw error;
-    res.json({ session: data });
-  } catch (e) { next(e); }
+
+    // Get group members
+    const { data: members } = await supabase
+      .from("group_members")
+      .select("profiles(email, full_name)")
+      .eq("group_id", group_id);
+
+    if (!members || members.length === 0) {
+      console.log("No members to email.");
+    } else {
+      console.log("Emails to send:", members.map(m => m.profiles.email));
+
+      // Send emails asynchronously with throttling
+      const emailPromises = members
+        .filter(m => m.profiles.email && m.profiles.email !== user.email)
+        .map((m, index) => {
+          return new Promise(resolve => {
+            // Delay each email by 300ms to avoid Gmail throttling
+            setTimeout(async () => {
+              try {
+                await transporter.sendMail({
+                  from: process.env.SMTP_USER,
+                  to: m.profiles.email,
+                  subject: `New Study Session in your group`,
+                  text: `Hi ${m.profiles.full_name},\n\nA new study session has been scheduled:\n
+Date/Time: ${start_at}\nVenue: ${venue}\nTopic: ${topic}\nTime goal: ${time_goal_minutes} mins\nContent goal: ${content_goal}\n\nJoin your group to participate!`,
+                });
+                console.log("Email sent to", m.profiles.email);
+              } catch (err) {
+                console.error("Failed to send email to", m.profiles.email, err);
+              } finally {
+                resolve(null); // resolve promise regardless of success/failure
+              }
+            }, index * 300); // stagger emails
+          });
+        });
+
+      // Run all email promises but don't block the response too long
+      Promise.allSettled(emailPromises);
+    }
+
+    res.json({ session: sessionData });
+  } catch (e) {
+    next(e);
+  }
 });
+
 
 /** List upcoming sessions for a group */
 router.get("/groups/:groupId/sessions", async (req, res, next) => {
