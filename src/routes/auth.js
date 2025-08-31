@@ -71,73 +71,52 @@ router.post("/login", async (req, res) => {
 // SIGNUP: Create profile for new OAuth users
 router.post("/signup", async (req, res) => {
   try {
-    console.log("Signup endpoint hit");
-    
     const authHeader = req.headers.authorization || "";
     const accessToken = authHeader.startsWith("Bearer ")
       ? authHeader.slice(7)
       : null;
 
-    if (!accessToken) {
-      console.log("No access token provided");
-      return res.status(400).json({ error: "Missing access token" });
-    }
+    if (!accessToken) return res.status(400).json({ error: "Missing access token" });
 
     const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-    console.log("Auth user lookup:", { user: user?.id, error });
-    
-    if (error || !user) {
-      console.log("Invalid token or no user");
-      return res.status(401).json({ error: "Invalid or expired token" });
+    if (error || !user) return res.status(401).json({ error: "Invalid or expired token" });
+
+    const { degree, modules, interest } = req.body;
+
+    // Validate required fields
+    if (!degree || !interest) {
+      return res.status(400).json({ error: "Degree and interest are required" });
     }
 
-    // Check if profile already exists
-    const { data: existingProfile, error: profileError } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('id', user.id)
-      .single();
+    // Make sure modules is an array of non-empty strings
+    const modulesArray = Array.isArray(modules) ? modules.filter(m => m.trim() !== "") : [];
 
-    console.log("Existing profile check:", { profile: existingProfile?.id, error: profileError });
+    // Insert into Supabase
+    const { error: insertError } = await supabase
+      .from("profiles")
+      .insert([
+        {
+          id: user.id,
+          email: user.email,
+          full_name: user.user_metadata?.full_name ?? null,
+          degree,
+          modules: modulesArray, // must match column type in Supabase
+          interest,
+          created_at: new Date().toISOString(),
+        },
+      ]);
 
-    if (existingProfile) {
-      console.log("Profile already exists");
-      return res.status(400).json({ error: "User already exists. Please login instead." });
+    if (insertError) {
+      console.error("Insert error:", insertError);
+      return res.status(500).json({ error: "Failed to create user profile" });
     }
 
-    // Profile doesn't exist, create it
-    if (profileError && profileError.code === 'PGRST116') {
-      console.log("Creating new profile for user:", user.id);
-      const { error: insertError } = await supabase
-        .from('profiles')
-        .insert([
-          {
-            id: user.id,
-            email: user.email,
-            full_name: user.user_metadata?.full_name ?? null,
-            created_at: new Date().toISOString()
-          }
-        ]);
-
-      if (insertError) {
-        console.error("Profile creation error:", insertError);
-        return res.status(500).json({ error: "Failed to create user profile" });
-      }
-
-      console.log("Signup successful for user:", user.id);
-      return res.json({
-        message: "Signup successful",
-        user: { id: user.id, email: user.email, full_name: user.user_metadata?.full_name ?? null }
-      });
-    }
-
-    // Other database error
-    console.error("Unexpected profile error:", profileError);
-    return res.status(500).json({ error: "Database error" });
+    return res.json({ message: "Signup successful" });
   } catch (err) {
     console.error("Signup error:", err);
     return res.status(500).json({ error: "Something went wrong" });
   }
 });
+
 
 export default router;
