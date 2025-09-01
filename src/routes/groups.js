@@ -1,4 +1,102 @@
 // routes/groups.js
+/**
+ * @openapi
+ * /api/groups:
+ *   post:
+ *     summary: Create a group
+ *     tags: [Groups]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name: { type: string }
+ *               module: { type: string }
+ *     responses:
+ *       200: { description: Group created }
+ *       401: { description: Unauthorized }
+ */
+
+/**
+ * @openapi
+ * /api/groups:
+ *   get:
+ *     summary: List groups I own or belong to
+ *     tags: [Groups]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Groups returned }
+ *       401: { description: Unauthorized }
+ */
+
+/**
+ * @openapi
+ * /api/group-invitations:
+ *   post:
+ *     summary: Send group invites (owner only)
+ *     tags: [Groups]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [group_id, recipient_ids]
+ *             properties:
+ *               group_id: { type: integer }
+ *               recipient_ids: { type: array, items: { type: string } }
+ *     responses:
+ *       200: { description: Invitations sent }
+ *       401: { description: Unauthorized }
+ *       403: { description: Only owner can invite }
+ */
+
+/**
+ * @openapi
+ * /api/group-invitations/received:
+ *   get:
+ *     summary: View my received group invites
+ *     tags: [Groups]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Invitations returned }
+ *       401: { description: Unauthorized }
+ */
+
+/**
+ * @openapi
+ * /api/group-invitations/{id}:
+ *   put:
+ *     summary: Accept/decline a group invite
+ *     tags: [Groups]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema: { type: integer }
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status: { type: string, enum: [accepted, declined] }
+ *     responses:
+ *       200: { description: Updated }
+ *       400: { description: Invalid status or already handled }
+ *       401: { description: Unauthorized }
+ *       403: { description: Not authorized }
+ *       404: { description: Invite not found }
+ */
+
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 

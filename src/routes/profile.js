@@ -1,4 +1,50 @@
 // routes/profile.js
+/**
+ * @openapi
+ * /api/profile:
+ *   get:
+ *     summary: Get my profile
+ *     tags: [Profile]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Profile returned }
+ *       401: { description: Unauthorized }
+ */
+
+/**
+ * @openapi
+ * /api/profile:
+ *   put:
+ *     summary: Update my profile
+ *     tags: [Profile]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               degree: { type: string }
+ *               modules: { type: array, items: { type: string } }
+ *               interest: { type: string }
+ *     responses:
+ *       200: { description: Updated profile }
+ *       401: { description: Unauthorized }
+ */
+
+/**
+ * @openapi
+ * /api/friends:
+ *   get:
+ *     summary: List my friends
+ *     tags: [Profile]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Friends returned }
+ *       401: { description: Unauthorized }
+ */
+
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 

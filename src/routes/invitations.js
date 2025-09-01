@@ -1,3 +1,55 @@
+/**
+ * @openapi
+ * /api/invitations/received:
+ *   get:
+ *     summary: View my friend invitations (received)
+ *     tags: [Invitations]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Invitations returned }
+ *       401: { description: Unauthorized }
+ */
+
+/**
+ * @openapi
+ * /api/invitations/sent:
+ *   get:
+ *     summary: View my friend invitations (sent)
+ *     tags: [Invitations]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Invitations returned }
+ *       401: { description: Unauthorized }
+ */
+
+/**
+ * @openapi
+ * /api/invitations/{id}:
+ *   put:
+ *     summary: Accept/decline a friend invite
+ *     tags: [Invitations]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema: { type: integer }
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status: { type: string, enum: [accepted, declined] }
+ *     responses:
+ *       200: { description: Updated }
+ *       400: { description: Invalid status or already handled }
+ *       401: { description: Unauthorized }
+ *       403: { description: Not authorized }
+ *       404: { description: Invitation not found }
+ */
 
 
 import express from "express";
