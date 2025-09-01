@@ -1,3 +1,45 @@
+/**
+ * @openapi
+ * /api/search:
+ *   post:
+ *     summary: Search profiles by modules/degree/interest/name
+ *     tags: [Search]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [searchType, searchTerm]
+ *             properties:
+ *               searchType: { type: string, enum: [modules, degree, interest, name] }
+ *               searchTerm: { type: string }
+ *     responses:
+ *       200:
+ *         description: Profiles
+ */
+
+/**
+ * @openapi
+ * /api/invite:
+ *   post:
+ *     summary: Send a friend invite to another user
+ *     tags: [Search]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [recipient_id]
+ *             properties:
+ *               recipient_id: { type: string }
+ *     responses:
+ *       200: { description: Invitation sent }
+ *       401: { description: Invalid token }
+ */
+
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 

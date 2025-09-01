@@ -1,4 +1,42 @@
 // src/routes/auth.js
+/**
+ * @openapi
+ * /api/auth/login:
+ *   post:
+ *     summary: Verify Supabase access token; ensure user has a profile
+ *     tags: [Auth]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Login ok }
+ *       400: { description: Missing access token }
+ *       401: { description: Invalid/expired token or user has not signed up }
+ */
+
+/**
+ * @openapi
+ * /api/auth/signup:
+ *   post:
+ *     summary: Create a profile for the authenticated Supabase user
+ *     tags: [Auth]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [degree, interest]
+ *             properties:
+ *               degree: { type: string }
+ *               modules: { type: array, items: { type: string } }
+ *               interest: { type: string }
+ *     responses:
+ *       200: { description: Signup successful }
+ *       400: { description: Missing required fields or token }
+ *       401: { description: Invalid/expired token }
+ *       500: { description: Failed to create profile }
+ */
+
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 

@@ -1,4 +1,41 @@
 // routes/progress.js
+/**
+ * @openapi
+ * /api/progress:
+ *   get:
+ *     summary: Get my recent progress entries (last 14)
+ *     tags: [Progress]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Entries returned }
+ *       401: { description: Unauthorized }
+ */
+
+/**
+ * @openapi
+ * /api/progress:
+ *   post:
+ *     summary: Upsert a progress entry for a date
+ *     tags: [Progress]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [date, hours]
+ *             properties:
+ *               date: { type: string, format: date }
+ *               hours: { type: number }
+ *               productivity: { type: integer }
+ *               notes: { type: string }
+ *     responses:
+ *       200: { description: Upserted }
+ *       400: { description: Missing fields }
+ *       401: { description: Unauthorized }
+ */
+
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 

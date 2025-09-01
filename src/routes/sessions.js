@@ -1,4 +1,130 @@
 // routes/sessions.js
+/**
+ * @openapi
+ * /api/groups/{groupId}/sessions:
+ *   post:
+ *     summary: Create a planned session
+ *     tags: [Sessions]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: groupId
+ *         schema: { type: integer }
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [start_at]
+ *             properties:
+ *               start_at: { type: string, format: date-time }
+ *               venue: { type: string }
+ *               topic: { type: string }
+ *               time_goal_minutes: { type: integer }
+ *               content_goal: { type: string }
+ *     responses:
+ *       200: { description: Created }
+ *       400: { description: Validation error }
+ *       401: { description: Unauthorized }
+ *       403: { description: Not a group member }
+ */
+
+/**
+ * @openapi
+ * /api/groups/{groupId}/sessions:
+ *   get:
+ *     summary: List sessions for a group
+ *     tags: [Sessions]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: groupId
+ *         schema: { type: integer }
+ *         required: true
+ *     responses:
+ *       200: { description: Sessions returned }
+ *       401: { description: Unauthorized }
+ *       403: { description: Not a group member }
+ */
+
+/**
+ * @openapi
+ * /api/groups/{groupId}/sessions/{sessionId}:
+ *   delete:
+ *     summary: Delete a session (creator only)
+ *     tags: [Sessions]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: groupId
+ *         schema: { type: integer }
+ *         required: true
+ *       - in: path
+ *         name: sessionId
+ *         schema: { type: integer }
+ *         required: true
+ *     responses:
+ *       200: { description: Deleted }
+ *       401: { description: Unauthorized }
+ *       403: { description: Only the creator can delete }
+ *       404: { description: Not found }
+ */
+
+/**
+ * @openapi
+ * /api/groups/{groupId}/messages:
+ *   post:
+ *     summary: Post a group message
+ *     tags: [Sessions]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: groupId
+ *         schema: { type: integer }
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               session_id: { type: integer }
+ *               content: { type: string }
+ *               attachment_url: { type: string }
+ *     responses:
+ *       200: { description: Created }
+ *       400: { description: Missing content or attachment }
+ *       401: { description: Unauthorized }
+ *       403: { description: Not a group member }
+ */
+
+/**
+ * @openapi
+ * /api/groups/{groupId}/messages:
+ *   get:
+ *     summary: Get group messages (optionally by session)
+ *     tags: [Sessions]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: groupId
+ *         schema: { type: integer }
+ *         required: true
+ *       - in: query
+ *         name: sessionId
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Messages returned }
+ *       401: { description: Unauthorized }
+ *       403: { description: Not a group member }
+ */
+
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import nodemailer from "nodemailer";
