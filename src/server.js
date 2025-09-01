@@ -1,7 +1,10 @@
 import dotenv from "dotenv";
 dotenv.config();
+
 import express from "express";
 import cors from "cors";
+import swaggerUi from "swagger-ui-express";
+import { buildOpenApiSpec } from "./swagger.js";
 
 import authRoutes from "./routes/auth.js";
 import searchRoutes from "./routes/search.js";
@@ -11,32 +14,46 @@ import groupRoutes from "./routes/groups.js";
 import sessionsRoutes from "./routes/sessions.js";
 import progressRoutes from "./routes/progress.js";
 
-
 const app = express();
-app.use(cors());
+
+// CORS: allow Authorization header so partners can auth from Swagger UI
+app.use(
+  cors({
+    origin: "*",
+    methods: "GET,POST,PUT,DELETE,OPTIONS",
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 app.use(express.json());
 
-// Health check root
+// Health check root (keep your current behavior)
 app.get("/", (_req, res) => {
   res.json({ ok: true, service: "LockedIn backend", ts: Date.now() });
 });
 
+// Optional: separate health path too
+app.get("/health", (_req, res) => res.json({ ok: true }));
+
 console.log("Supabase URL:", process.env.SUPABASE_URL);
+
+// ---------------- Swagger UI ----------------
+const openapiSpec = buildOpenApiSpec();
+app.get("/openapi.json", (_req, res) => res.json(openapiSpec));
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(openapiSpec, { explorer: true }));
+// -------------------------------------------
 
 // Mount routes
 console.log("Loading routes...");
-app.use("/api/auth", authRoutes);
-app.use("/api", searchRoutes);        // search.js defines /search and /invite
-app.use("/api/", invitationRoutes); // invitations.js defines /received, /sent, PUT /:id
-app.use("/api", profileRoutes);      // /api/profile, /api/profile/update, /api/friends
-app.use("/api", groupRoutes);        // /api/groups/* and /api/group-invitations/*
-app.use("/api", sessionsRoutes);   // /api/groups/:groupId/sessions*, /api/groups/:groupId/messages*
-app.use("/api", progressRoutes);   // /api/progress (GET/POST)
+app.use("/api/auth", authRoutes);     // -> /api/auth/login, /api/auth/signup
+app.use("/api", searchRoutes);        // -> /api/search, /api/invite
+app.use("/api", invitationRoutes);    // -> /api/invitations/received, /api/invitations/sent, /api/invitations/:id
+app.use("/api", profileRoutes);       // -> /api/profile, /api/friends
+app.use("/api", groupRoutes);         // -> /api/groups/*, /api/group-invitations/*
+app.use("/api", sessionsRoutes);      // -> /api/groups/:groupId/sessions*, /api/groups/:groupId/messages*
+app.use("/api", progressRoutes);      // -> /api/progress
 console.log("Routes loaded successfully!");
 
-// ... your existing imports and app setup ...
-
-// Put this JUST ABOVE app.listen(...)
+// Error handler
 app.use((err, req, res, _next) => {
   console.error("UNHANDLED ERROR:", err);
   res.status(500).json({ error: err?.message || "Internal Server Error" });
@@ -44,4 +61,3 @@ app.use((err, req, res, _next) => {
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`Backend on :${PORT}`));
-
