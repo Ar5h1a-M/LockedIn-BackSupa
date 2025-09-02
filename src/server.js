@@ -59,5 +59,11 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ error: err?.message || "Internal Server Error" });
 });
 
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`Backend on :${PORT}`));
+
+if (process.env.NODE_ENV !== "test") {
+  const PORT = process.env.PORT || 4000;
+  app.listen(PORT, () => console.log(`Backend on :${PORT}`));
+}
+
+export default app;
+

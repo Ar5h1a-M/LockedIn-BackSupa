@@ -4,7 +4,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --coverage --runInBand",
     "start": "node -r dotenv/config src/server.js"
   },
   "repository": {
@@ -29,6 +29,12 @@
     "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
-    "cross-env": "^10.0.0"
+    "@babel/preset-env": "^7.28.3",
+    "@babel/preset-typescript": "^7.27.1",
+    "babel-jest": "^30.1.2",
+    "cross-env": "^10.0.0",
+    "jest": "^30.1.2",
+    "jest-environment-node": "^30.1.2",
+    "supertest": "^7.1.4"
   }
 }
