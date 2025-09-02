@@ -14,7 +14,8 @@ jobs:
         with:
           node-version: 20
       - run: npm install
-      - run: npm test -- --coverage --coverageReporters=clover
+      - name: Run tests with coverage
+        run: npm test -- --coverage --coverageReporters=text --coverageReporters=clover
 
       - name: Upload coverage to GitHub
         uses: actions/upload-artifact@v4
