@@ -179,7 +179,8 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
     if (!user) return res.status(401).json({ error: "Unauthorized" });
 
     const group_id = req.params.groupId;
-    const { start_at, venue, topic, time_goal_minutes, content_goal } = req.body || {};
+    const { start_at, venue, topic, time_goal_minutes, content_goal } =
+      req.body || {};
 
     const isMember = await requireGroupMember(group_id, user.id);
     if (!isMember) return res.status(403).json({ error: "Not a group member" });
@@ -187,13 +188,25 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
     if (!start_at) return res.status(400).json({ error: "start_at is required" });
 
     const starts = new Date(start_at);
-    if (isNaN(starts.getTime())) return res.status(400).json({ error: "Invalid start_at" });
-    if (starts < new Date()) return res.status(400).json({ error: "start_at cannot be in the past" });
+    if (isNaN(starts.getTime()))
+      return res.status(400).json({ error: "Invalid start_at" });
+    if (starts < new Date())
+      return res.status(400).json({ error: "start_at cannot be in the past" });
 
     // Insert session
     const { data: sessionData, error } = await supabase
       .from("sessions")
-      .insert([{ group_id, creator_id: user.id, start_at, venue, topic, time_goal_minutes, content_goal }])
+      .insert([
+        {
+          group_id,
+          creator_id: user.id,
+          start_at,
+          venue,
+          topic,
+          time_goal_minutes,
+          content_goal,
+        },
+      ])
       .select("*")
       .single();
 
@@ -202,44 +215,208 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
     // Get group members
     const { data: members } = await supabase
       .from("group_members")
-      .select("profiles(email, full_name)")
+      .select("profiles(id, email, full_name)")
       .eq("group_id", group_id);
 
-    if (!members || members.length === 0) {
-      console.log("No members to email.");
-    } else {
-      console.log("Emails to send:", members.map(m => m.profiles.email));
+       if (!members || members.length === 0) return res.json({ session: sessionData });
 
-      // Send emails asynchronously with throttling
-      const emailPromises = members
-        .filter(m => m.profiles.email && m.profiles.email !== user.email)
-        .map((m, index) => {
-          return new Promise(resolve => {
-            // Delay each email by 300ms to avoid Gmail throttling
-            setTimeout(async () => {
-              try {
-                await transporter.sendMail({
-                  from: process.env.SMTP_USER,
-                  to: m.profiles.email,
-                  subject: `New Study Session in your group`,
-                  text: `Hi ${m.profiles.full_name},\n\nA new study session has been scheduled:\n
-Date/Time: ${start_at}\nVenue: ${venue}\nTopic: ${topic}\nTime goal: ${time_goal_minutes} mins\nContent goal: ${content_goal}\n\nJoin your group to participate!`,
-                });
-                console.log("Email sent to", m.profiles.email);
-              } catch (err) {
-                console.error("Failed to send email to", m.profiles.email, err);
-              } finally {
-                resolve(null); // resolve promise regardless of success/failure
-              }
-            }, index * 300); // stagger emails
-          });
-        });
+    // Check conflicts per member
+    const conflictPromises = members
+      .filter(m => m.profiles.email && m.profiles.email !== user.email)
+      .map(async (m) => {
+        const { data: acceptedSessions } = await supabase
+          .from("session_invites")
+          .select("session_id")
+          .eq("user_id", m.profiles.id)
+          .eq("status", "accepted");
 
-      // Run all email promises but don't block the response too long
-      Promise.allSettled(emailPromises);
-    }
+        const sessionIds = acceptedSessions.map(s => s.session_id);
+        if (sessionIds.length === 0) return { member: m, conflict: false };
+
+        const { data: conflicts } = await supabase
+          .from("sessions")
+          .select("id, start_at, topic")
+          .in("id", sessionIds);
+
+        const conflict = conflicts.some(c => new Date(c.start_at).getTime() === starts.getTime());
+        return { member: m, conflict };
+      });
+
+    const conflictResults = await Promise.all(conflictPromises);
+
+    // Send emails or notify creator
+    const emailPromises = conflictResults.map(({ member, conflict }, index) => {
+      return new Promise(async (resolve) => {
+        try {
+          if (conflict) {
+            // Notify creator
+            const { data: creator } = await supabase
+              .from("profiles")
+              .select("email, full_name")
+              .eq("id", user.id)
+              .single();
+
+            if (creator?.email) {
+              await transporter.sendMail({
+                from: process.env.SMTP_USER,
+                to: creator.email,
+                subject: `Conflict: ${member.profiles.full_name} already booked`,
+                text: `${member.profiles.full_name} has already accepted another session at ${start_at}.`,
+              });
+            }
+          } else {
+            // Send RSVP email
+            const acceptLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/accept/${member.profiles.id}`;
+            const declineLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/decline/${member.profiles.id}`;
+
+            const htmlContent = `
+              <h2>New Study Session Scheduled</h2>
+              <p><strong>Date/Time:</strong> ${start_at}</p>
+              <p><strong>Venue:</strong> ${venue}</p>
+              <p><strong>Topic:</strong> ${topic}</p>
+              <p><strong>Time goal:</strong> ${time_goal_minutes} mins</p>
+              <p><strong>Content goal:</strong> ${content_goal}</p>
+              <p>
+                <a href="${acceptLink}" style="padding:10px 20px;background:#4CAF50;color:#fff;text-decoration:none;border-radius:5px;">
+                  ✅ Accept
+                </a>
+                &nbsp;&nbsp;
+                <a href="${declineLink}" style="padding:10px 20px;background:#f44336;color:#fff;text-decoration:none;border-radius:5px;">
+                  ❌ Decline
+                </a>
+              </p>
+            `;
+
+            await transporter.sendMail({
+              from: process.env.SMTP_USER,
+              to: member.profiles.email,
+              subject: `New Study Session in your group`,
+              html: htmlContent,
+            });
+            // Insert pending invite
+            await supabase.from("session_invites").insert({
+              session_id: sessionData.id,
+              user_id: member.profiles.id,
+              status: "pending",
+            });
+          }
+        } catch (err) {
+          console.error(err);
+        } finally {
+          resolve(null);
+        }
+      });
+    });
+
+    await Promise.all(emailPromises);
 
     res.json({ session: sessionData });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** RSVP via email links */
+router.get("/sessions/:sessionId/accept/:userId", async (req, res) => {
+  const { sessionId, userId } = req.params;
+  const { error } = await supabase
+    .from("session_invites")
+    .upsert({
+      session_id: sessionId,
+      user_id: userId,
+      status: "accepted",
+      responded_at: new Date().toISOString(), 
+    });
+  if (error) return res.status(500).send("Error updating RSVP");
+  res.send("✅ You’ve accepted the session!");
+});
+
+router.get("/sessions/:sessionId/decline/:userId", async (req, res) => {
+  const { sessionId, userId } = req.params;
+  const { error } = await supabase
+    .from("session_invites")
+    .upsert({
+      session_id: sessionId,
+      user_id: userId,
+      status: "declined",
+      responded_at: new Date().toISOString(),  
+    });
+  if (error) return res.status(500).send("Error updating RSVP");
+  res.send("❌ You’ve declined the session.");
+});
+
+// POST /groups/:groupId/sessions/:sessionId/respond
+router.post("/groups/:groupId/sessions/:sessionId/respond", async (req, res, next) => {
+  try {
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+    const { groupId, sessionId } = req.params;
+    const { status } = req.body; // "accepted" or "declined"
+
+    if (!["accepted", "declined"].includes(status)) {
+      return res.status(400).json({ error: "Invalid status" });
+    }
+
+    // Must be member
+    const isMember = await requireGroupMember(groupId, user.id);
+    if (!isMember) return res.status(403).json({ error: "Not a group member" });
+
+    // Fetch session
+    const { data: session, error: sErr } = await supabase
+      .from("sessions")
+      .select("id, start_at, creator_id")
+      .eq("id", sessionId)
+      .single();
+    if (sErr || !session) return res.status(404).json({ error: "Session not found" });
+
+    // Conflict check: only if accepting
+    if (status === "accepted") {
+      const { data: conflicts, error: cErr } = await supabase
+        .from("sessions")
+        .select("id, start_at, topic")
+        .in(
+          "id",
+          supabase
+            .from("session_invites")
+            .select("session_id")
+            .eq("user_id", user.id)
+            .eq("status", "accepted")
+        );
+      if (cErr) throw cErr;
+
+      const conflict = conflicts.find(c => new Date(c.start_at).getTime() === new Date(session.start_at).getTime());
+      if (conflict) {
+        // Notify session creator
+        const { data: prof } = await supabase.from("profiles").select("full_name, email").eq("id", user.id).single();
+        const { data: creator } = await supabase.from("profiles").select("email").eq("id", session.creator_id).single();
+
+        if (creator?.email) {
+          await transporter.sendMail({
+            from: process.env.SMTP_USER,
+            to: creator.email,
+            subject: `Conflict: ${prof?.full_name} already booked`,
+            text: `${prof?.full_name} has already accepted another session at ${session.start_at}.`,
+          });
+        }
+
+        return res.status(409).json({ error: "You already accepted a session at this time" });
+      }
+    }
+
+    // Update invite status
+    const { error } = await supabase
+      .from("session_invites")
+      .upsert({
+        session_id: sessionId,
+        user_id: user.id,
+        status,
+        responded_at: new Date().toISOString(),
+      });
+
+    if (error) throw error;
+
+    res.json({ message: `Invite ${status}` });
   } catch (e) {
     next(e);
   }
@@ -354,3 +531,4 @@ router.get("/groups/:groupId/messages", async (req, res, next) => {
 
 
 export default router;
+
