@@ -39,6 +39,7 @@
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 
+
 const router = express.Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
@@ -86,5 +87,37 @@ router.post("/progress", async (req, res, next) => {
     res.json({ entry: data });
   } catch (e) { next(e); }
 });
+
+router.get("/study-time", async (req, res, next) => {
+  try {
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+    const { data, error } = await supabase.rpc("aggregate_study_time", { p_user_id: user.id });
+    if (error) throw error;
+
+    const row = data?.[0] || { today: 0, week: 0, weekend: 0, month: 0 };
+
+    const formatTime = (hours) => {
+      const hNum = Number(hours);
+      if (isNaN(hNum)) return "0h 0m";
+      const h = Math.floor(hNum);
+      const m = Math.round((hNum - h) * 60);
+      return `${h}h ${m}m`;
+    };
+
+    res.json({
+      today: formatTime(row.today),
+      week: formatTime(row.week),
+      weekend: formatTime(row.weekend),
+      month: formatTime(row.month),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+
+
 
 export default router;

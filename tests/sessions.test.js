@@ -6,20 +6,65 @@ let supabaseMock;
 let transporterMock;
 
 beforeAll(async () => {
+  // Create a proper chainable mock structure with ALL Supabase methods
+  const createChainableMock = (resultData = null, error = null) => {
+    const mock = {
+      // Query builder methods
+      select: jest.fn().mockReturnThis(),
+      insert: jest.fn().mockReturnThis(),
+      update: jest.fn().mockReturnThis(),
+      upsert: jest.fn().mockReturnThis(),
+      delete: jest.fn().mockReturnThis(),
+      
+      // Filter methods
+      eq: jest.fn().mockReturnThis(),
+      neq: jest.fn().mockReturnThis(),
+      gt: jest.fn().mockReturnThis(),
+      lt: jest.fn().mockReturnThis(),
+      gte: jest.fn().mockReturnThis(),
+      lte: jest.fn().mockReturnThis(),
+      like: jest.fn().mockReturnThis(),
+      ilike: jest.fn().mockReturnThis(),
+      is: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(),
+      contains: jest.fn().mockReturnThis(),
+      containedBy: jest.fn().mockReturnThis(),
+      rangeGt: jest.fn().mockReturnThis(),
+      rangeLt: jest.fn().mockReturnThis(),
+      rangeGte: jest.fn().mockReturnThis(),
+      rangeLte: jest.fn().mockReturnThis(),
+      rangeAdjacent: jest.fn().mockReturnThis(),
+      overlaps: jest.fn().mockReturnThis(),
+      textSearch: jest.fn().mockReturnThis(),
+      match: jest.fn().mockReturnThis(),
+      not: jest.fn().mockReturnThis(),
+      or: jest.fn().mockReturnThis(),
+      filter: jest.fn().mockReturnThis(),
+      
+      // Ordering and limiting
+      order: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      range: jest.fn().mockReturnThis(),
+      
+      // Final execution methods
+      maybeSingle: jest.fn().mockResolvedValue({ data: resultData, error }),
+      single: jest.fn().mockResolvedValue({ data: resultData, error }),
+      then: jest.fn((callback) => {
+        if (typeof callback === 'function') {
+          callback({ data: resultData, error });
+        }
+        return { catch: jest.fn() };
+      })
+    };
+    return mock;
+  };
+
   // --- Mock Supabase client
   supabaseMock = {
     auth: {
       getUser: jest.fn(),
     },
-    from: jest.fn(() => ({
-      select: jest.fn(),
-      insert: jest.fn(),
-      update: jest.fn(),
-      eq: jest.fn(),
-      in: jest.fn(),
-      maybeSingle: jest.fn(),
-      single: jest.fn(),
-    })),
+    from: jest.fn(() => createChainableMock())
   };
 
   jest.unstable_mockModule("@supabase/supabase-js", () => ({
@@ -37,7 +82,6 @@ beforeAll(async () => {
       createTransport: () => transporterMock,
     },
   }));
-
 
   const mod = await import("../src/server.js");
   app = mod.default || mod;
@@ -77,19 +121,20 @@ describe("Sessions endpoints", () => {
         error: null,
       });
 
+      // Mock group_members query to return null (not a member)
       supabaseMock.from.mockImplementation((table) => {
         if (table === "group_members") {
-          return {
-            select: jest.fn(() => ({
-              eq: jest.fn(() => ({
-                eq: jest.fn().mockResolvedValue({ data: null, error: null }),
-                maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
-              })),
-              maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
-            })),
+          const mock = {
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            maybeSingle: jest.fn().mockResolvedValue({ 
+              data: null, 
+              error: null 
+            })
           };
+          return mock;
         }
-        return {};
+        return createChainableMock();
       });
 
       const res = await request(app)
@@ -110,17 +155,17 @@ describe("Sessions endpoints", () => {
       // Simulate group member
       supabaseMock.from.mockImplementation((table) => {
         if (table === "group_members") {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                eq: jest.fn().mockResolvedValue({ data: { user_id: mockUser.id }, error: null }),
-                maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: mockUser.id }, error: null }),
-              }),
-              maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: mockUser.id }, error: null }),
-            }),
+          const mock = {
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            maybeSingle: jest.fn().mockResolvedValue({ 
+              data: { user_id: mockUser.id }, 
+              error: null 
+            })
           };
+          return mock;
         }
-        return {};
+        return createChainableMock();
       });
 
       const res = await request(app)
@@ -140,17 +185,17 @@ describe("Sessions endpoints", () => {
 
       supabaseMock.from.mockImplementation((table) => {
         if (table === "group_members") {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                eq: jest.fn().mockResolvedValue({ data: { user_id: mockUser.id }, error: null }),
-                maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: mockUser.id }, error: null }),
-              }),
-              maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: mockUser.id }, error: null }),
-            }),
+          const mock = {
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            maybeSingle: jest.fn().mockResolvedValue({ 
+              data: { user_id: mockUser.id }, 
+              error: null 
+            })
           };
+          return mock;
         }
-        return {};
+        return createChainableMock();
       });
 
       const res = await request(app)
@@ -170,17 +215,17 @@ describe("Sessions endpoints", () => {
 
       supabaseMock.from.mockImplementation((table) => {
         if (table === "group_members") {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                eq: jest.fn().mockResolvedValue({ data: { user_id: mockUser.id }, error: null }),
-                maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: mockUser.id }, error: null }),
-              }),
-              maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: mockUser.id }, error: null }),
-            }),
+          const mock = {
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            maybeSingle: jest.fn().mockResolvedValue({ 
+              data: { user_id: mockUser.id }, 
+              error: null 
+            })
           };
+          return mock;
         }
-        return {};
+        return createChainableMock();
       });
 
       const res = await request(app)
@@ -209,47 +254,51 @@ describe("Sessions endpoints", () => {
         content_goal: "Finish chapter 3",
       };
 
+      let callCount = 0;
       supabaseMock.from.mockImplementation((table) => {
+        callCount++;
+        
         if (table === "group_members") {
-          return {
-            select: jest.fn(() => ({
-              eq: jest.fn(() => ({
-                eq: jest.fn().mockResolvedValue({
-                  data: { user_id: mockUser.id },
-                  error: null,
-                }),
-                maybeSingle: jest.fn().mockResolvedValue({
-                  data: { user_id: mockUser.id },
-                  error: null,
-                }),
-              })),
-              maybeSingle: jest.fn().mockResolvedValue({
-                data: { user_id: mockUser.id },
-                error: null,
-              }),
-            })),
-          };
+          if (callCount === 1) {
+            // First call: check if user is group member
+            const mock = {
+              select: jest.fn().mockReturnThis(),
+              eq: jest.fn().mockReturnThis(),
+              maybeSingle: jest.fn().mockResolvedValue({ 
+                data: { user_id: mockUser.id }, 
+                error: null 
+              })
+            };
+            return mock;
+          } else {
+            // Subsequent calls: get member emails
+            const mock = {
+              select: jest.fn().mockReturnThis(),
+              eq: jest.fn().mockResolvedValue({ 
+                data: [
+                  { user_id: "user1", profiles: { email: "user1@test.com" } },
+                  { user_id: "user2", profiles: { email: "user2@test.com" } }
+                ], 
+                error: null 
+              })
+            };
+            return mock;
+          }
         }
+        
         if (table === "sessions") {
-          return {
-            insert: jest.fn(() => ({
-              select: jest.fn(() => ({
-                single: jest.fn().mockResolvedValue({
-                  data: mockSession,
-                  error: null,
-                }),
-              })),
-            })),
+          const mock = {
+            insert: jest.fn().mockReturnThis(),
+            select: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({ 
+              data: mockSession, 
+              error: null 
+            })
           };
+          return mock;
         }
-        if (table === "group_members") {
-          return {
-            select: jest.fn(() => ({
-              eq: jest.fn().mockResolvedValue({ data: [], error: null }),
-            })),
-          };
-        }
-        return {};
+        
+        return createChainableMock();
       });
 
       const res = await request(app)
@@ -265,6 +314,162 @@ describe("Sessions endpoints", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.session).toEqual(mockSession);
+    });
+
+    it("should handle database errors when creating session", async () => {
+      supabaseMock.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      });
+
+      supabaseMock.from.mockImplementation((table) => {
+        if (table === "group_members") {
+          const mock = {
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            maybeSingle: jest.fn().mockResolvedValue({ 
+              data: { user_id: mockUser.id }, 
+              error: null 
+            })
+          };
+          return mock;
+        }
+        if (table === "sessions") {
+          const mock = {
+            insert: jest.fn().mockReturnThis(),
+            select: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({ 
+              data: null, 
+              error: new Error("Database error") 
+            })
+          };
+          return mock;
+        }
+        return createChainableMock();
+      });
+
+      const res = await request(app)
+        .post(`/api/groups/${groupId}/sessions`)
+        .set("Authorization", "Bearer valid_token")
+        .send({
+          start_at: "2099-01-01T10:00:00Z",
+        });
+
+      expect(res.status).toBe(500);
+    });
+  });
+
+  describe("GET /api/groups/:groupId/sessions", () => {
+    const groupId = "1";
+
+    it("should return 401 when unauthorized", async () => {
+      supabaseMock.auth.getUser.mockResolvedValue({
+        data: { user: null },
+        error: null,
+      });
+
+      const res = await request(app)
+        .get(`/api/groups/${groupId}/sessions`);
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBe("Unauthorized");
+    });
+
+    it("should return sessions for group", async () => {
+      supabaseMock.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      });
+
+      const mockSessions = [
+        {
+          id: 1,
+          group_id: groupId,
+          creator_id: mockUser.id,
+          start_at: "2099-01-01T10:00:00Z",
+          venue: "Library",
+          topic: "Algorithms"
+        }
+      ];
+
+      let callCount = 0;
+      supabaseMock.from.mockImplementation((table) => {
+        callCount++;
+        
+        if (table === "group_members") {
+          const mock = {
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            maybeSingle: jest.fn().mockResolvedValue({ 
+              data: { user_id: mockUser.id }, 
+              error: null 
+            })
+          };
+          return mock;
+        }
+        
+        if (table === "sessions") {
+          const mock = {
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            order: jest.fn().mockResolvedValue({ 
+              data: mockSessions, 
+              error: null 
+            })
+          };
+          return mock;
+        }
+        
+        return createChainableMock();
+      });
+
+      const res = await request(app)
+        .get(`/api/groups/${groupId}/sessions`)
+        .set("Authorization", "Bearer valid_token");
+
+      expect(res.status).toBe(200);
+      expect(res.body.sessions).toEqual(mockSessions);
+    });
+
+    it("should handle database errors when fetching sessions", async () => {
+      supabaseMock.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      });
+
+      supabaseMock.from.mockImplementation((table) => {
+        if (table === "group_members") {
+          const mock = {
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            maybeSingle: jest.fn().mockResolvedValue({ 
+              data: { user_id: mockUser.id }, 
+              error: null 
+            })
+          };
+          return mock;
+        }
+        
+        if (table === "sessions") {
+          const mock = {
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            order: jest.fn().mockResolvedValue({ 
+              data: null, 
+              error: new Error("Database error") 
+            })
+          };
+          return mock;
+        }
+        
+        return createChainableMock();
+      });
+
+      const res = await request(app)
+        .get(`/api/groups/${groupId}/sessions`)
+        .set("Authorization", "Bearer valid_token");
+
+      expect(res.status).toBe(500);
     });
   });
 });
