@@ -1,5 +1,9 @@
 # LockedIn Backend
 
+![Backend Tests](https://github.com/Ar5h1a-M/LockedIn-BackSupa/actions/workflows/test.yml/badge.svg)
+[![codecov](https://codecov.io/gh/Ar5h1a-M/LockedIn-BackSupa/branch/main/graph/badge.svg)](https://codecov.io/gh/Ar5h1a-M/LockedIn-BackSupa)
+
+
 This is the backend API for **LockedIn**, a study buddy app that helps students find partners, create groups, and track progress.  
 It handles authentication (via Supabase Auth + Google OAuth) and user profile management.
 
@@ -66,3 +70,4 @@ POST /api/auth/login
 
 
 	
+
