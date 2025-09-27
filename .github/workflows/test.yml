@@ -15,7 +15,7 @@ jobs:
           node-version: 20
       - run: npm install
       - name: Run tests with coverage
-        run: npm test -- --coverage --coverageReporters=text --coverageReporters=clover
+        run:  npm run test:ci
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

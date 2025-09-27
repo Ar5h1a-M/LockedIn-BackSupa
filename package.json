@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --coverage --runInBand",
+    "test:ci": "npm test -- --coverageReporters=text --coverageReporters=lcov --coverageReporters=clover",
     "start": "node -r dotenv/config src/server.js"
   },
   "repository": {
