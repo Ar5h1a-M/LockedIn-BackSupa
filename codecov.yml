@@ -1,0 +1,28 @@
+coverage:
+  precision: 2
+  round: down
+  range: "70...100"
+  
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 5%
+    patch:
+      default:
+        target: auto
+
+# Ignore the same files Jest ignores
+ignore:
+  - "tests/**"
+  - "**/*.test.js"
+  - "**/*.spec.js"
+  - "coverage/**"
+  - "node_modules/**"
+
+comment:
+  layout: "reach,diff,flags,tree"
+  behavior: default
+
+codecov:
+  require_ci_to_pass: yes
