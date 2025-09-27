@@ -1,8 +1,13 @@
 # LockedIn Backend
 
-
-![Backend Tests](https://github.com/Ar5h1a-M/LockedIn-BackSupa/actions/workflows/test.yml/badge.svg)
+[![Tests](https://github.com/Ar5h1a-M/LockedIn-BackSupa/actions/workflows/test.yml/badge.svg)](https://github.com/Ar5h1a-M/LockedIn-BackSupa/actions)
 [![codecov](https://codecov.io/gh/Ar5h1a-M/LockedIn-BackSupa/branch/main/graph/badge.svg)](https://codecov.io/gh/Ar5h1a-M/LockedIn-BackSupa)
+[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
+[![Node.js](https://img.shields.io/badge/Node.js-20.x-green.svg)](https://nodejs.org/)
+
+## Quick Stats
+![Lines of Code](https://img.shields.io/tokei/lines/github/Ar5h1a-M/LockedIn-BackSupa)
+![Last Commit](https://img.shields.io/github/last-commit/Ar5h1a-M/LockedIn-BackSupa)
 
 
 This is the backend API for **LockedIn**, a study buddy app that helps students find partners, create groups, and track progress.  

@@ -5,9 +5,11 @@ let app;
 let supabaseMock;
 
 beforeAll(async () => {
-  // Mock Supabase client
+  // Mock Supabase client - following the exact pattern from your working invitations test
   supabaseMock = {
-    auth: { getUser: jest.fn() },
+    auth: {
+      getUser: jest.fn()
+    },
     from: jest.fn(() => ({
       insert: jest.fn(() => ({
         select: jest.fn(() => ({
@@ -16,21 +18,28 @@ beforeAll(async () => {
       })),
       select: jest.fn(() => ({
         eq: jest.fn(() => ({
-          gte: jest.fn(() => ({
-            order: jest.fn(() => ({
-              limit: jest.fn()
-            }))
+          single: jest.fn(),
+          order: jest.fn()
+        })),
+        in: jest.fn(),
+        gte: jest.fn(() => ({
+          order: jest.fn(() => ({
+            limit: jest.fn()
           }))
         }))
-      }))
+      })),
+      update: jest.fn(() => ({
+        eq: jest.fn()
+      })),
+      upsert: jest.fn()
     }))
   };
 
   jest.unstable_mockModule("@supabase/supabase-js", () => ({
-    createClient: () => supabaseMock
+    createClient: () => supabaseMock,
   }));
 
-  const mod = await import("../src/server.js"); // your express app
+  const mod = await import("../src/server.js");
   app = mod.default || mod;
 });
 
@@ -47,27 +56,42 @@ describe("Assessments endpoints", () => {
 
   describe("POST /api/assessments", () => {
     it("should return 401 when unauthorized", async () => {
-      supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null }, error: null });
+      supabaseMock.auth.getUser.mockResolvedValue({
+        data: { user: null },
+        error: null
+      });
 
       const res = await request(app)
         .post("/api/assessments")
-        .send({ name: "Test 1", test_date: "2025-01-01" });
+        .send({ name: "Math Test", scope: "Chapter 1", test_date: "2024-12-01" });
 
       expect(res.status).toBe(401);
       expect(res.body.error).toBe("Unauthorized");
     });
 
-    it("should create a new assessment", async () => {
-      supabaseMock.auth.getUser.mockResolvedValue({ data: { user: mockUser }, error: null });
+    it("should create assessment successfully", async () => {
+      supabaseMock.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null
+      });
 
-      const mockTest = { id: "test123", name: "Test 1", scope: "Math", test_date: "2025-01-01", user_id: mockUser.id };
+      const mockAssessment = {
+        id: 1,
+        user_id: mockUser.id,
+        name: "Math Test",
+        scope: "Chapter 1",
+        test_date: "2024-12-01T00:00:00Z"
+      };
 
       supabaseMock.from.mockImplementation((table) => {
         if (table === "tests") {
           return {
             insert: jest.fn(() => ({
               select: jest.fn(() => ({
-                single: jest.fn().mockResolvedValue({ data: mockTest, error: null })
+                single: jest.fn().mockResolvedValue({
+                  data: mockAssessment,
+                  error: null
+                })
               }))
             }))
           };
@@ -78,30 +102,62 @@ describe("Assessments endpoints", () => {
       const res = await request(app)
         .post("/api/assessments")
         .set("Authorization", "Bearer valid_token")
-        .send({ name: "Test 1", scope: "Math", test_date: "2025-01-01" });
+        .send({ name: "Math Test", scope: "Chapter 1", test_date: "2024-12-01" });
 
       expect(res.status).toBe(200);
-      expect(res.body.test).toMatchObject({ id: "test123", name: "Test 1", scope: "Math" });
+      expect(res.body.test).toEqual(mockAssessment);
+    });
+
+    it("should handle database errors when creating assessment", async () => {
+      supabaseMock.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null
+      });
+
+      supabaseMock.from.mockImplementation((table) => {
+        if (table === "tests") {
+          return {
+            insert: jest.fn(() => ({
+              select: jest.fn(() => ({
+                single: jest.fn().mockResolvedValue({
+                  data: null,
+                  error: new Error("Database error")
+                })
+              }))
+            }))
+          };
+        }
+        return {};
+      });
+
+      const res = await request(app)
+        .post("/api/assessments")
+        .set("Authorization", "Bearer valid_token")
+        .send({ name: "Math Test", scope: "Chapter 1", test_date: "2024-12-01" });
+
+      expect(res.status).toBe(500);
     });
   });
 
-  describe("GET /api/assessments/upcoming", () => {
+  describe("GET /api/upcoming", () => {
     it("should return 401 when unauthorized", async () => {
-      supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null }, error: null });
+      supabaseMock.auth.getUser.mockResolvedValue({
+        data: { user: null },
+        error: null
+      });
 
-      const res = await request(app).get("/api/assessments/upcoming");
+      const res = await request(app)
+        .get("/api/upcoming");
 
       expect(res.status).toBe(401);
       expect(res.body.error).toBe("Unauthorized");
     });
 
-    it("should return upcoming assessments", async () => {
-      supabaseMock.auth.getUser.mockResolvedValue({ data: { user: mockUser }, error: null });
-
-      const mockTests = [
-        { id: "test1", name: "Math Test", test_date: "2025-01-01", user_id: mockUser.id },
-        { id: "test2", name: "Science Test", test_date: "2025-02-01", user_id: mockUser.id }
-      ];
+    it("should return empty array when no upcoming assessments", async () => {
+      supabaseMock.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null
+      });
 
       supabaseMock.from.mockImplementation((table) => {
         if (table === "tests") {
@@ -110,7 +166,10 @@ describe("Assessments endpoints", () => {
               eq: jest.fn(() => ({
                 gte: jest.fn(() => ({
                   order: jest.fn(() => ({
-                    limit: jest.fn().mockResolvedValue({ data: mockTests, error: null })
+                    limit: jest.fn().mockResolvedValue({
+                      data: [],
+                      error: null
+                    })
                   }))
                 }))
               }))
@@ -121,12 +180,95 @@ describe("Assessments endpoints", () => {
       });
 
       const res = await request(app)
-        .get("/api/assessments/upcoming")
+        .get("/api/upcoming")
         .set("Authorization", "Bearer valid_token");
 
       expect(res.status).toBe(200);
-      expect(res.body.tests).toHaveLength(2);
-      expect(res.body.tests[0].name).toBe("Math Test");
+      expect(res.body.tests).toEqual([]);
+    });
+
+    it("should return upcoming assessments", async () => {
+      supabaseMock.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null
+      });
+
+      const mockTests = [
+        {
+          id: 1,
+          user_id: mockUser.id,
+          name: "Math Final",
+          scope: "All chapters",
+          test_date: "2024-12-15T10:00:00Z"
+        },
+        {
+          id: 2,
+          user_id: mockUser.id,
+          name: "Physics Quiz",
+          scope: "Mechanics",
+          test_date: "2024-12-20T14:00:00Z"
+        }
+      ];
+
+      supabaseMock.from.mockImplementation((table) => {
+        if (table === "tests") {
+          return {
+            select: jest.fn(() => ({
+              eq: jest.fn(() => ({
+                gte: jest.fn(() => ({
+                  order: jest.fn(() => ({
+                    limit: jest.fn().mockResolvedValue({
+                      data: mockTests,
+                      error: null
+                    })
+                  }))
+                }))
+              }))
+            }))
+          };
+        }
+        return {};
+      });
+
+      const res = await request(app)
+        .get("/api/upcoming")
+        .set("Authorization", "Bearer valid_token");
+
+      expect(res.status).toBe(200);
+      expect(res.body.tests).toEqual(mockTests);
+    });
+
+    it("should handle database errors when fetching assessments", async () => {
+      supabaseMock.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null
+      });
+
+      supabaseMock.from.mockImplementation((table) => {
+        if (table === "tests") {
+          return {
+            select: jest.fn(() => ({
+              eq: jest.fn(() => ({
+                gte: jest.fn(() => ({
+                  order: jest.fn(() => ({
+                    limit: jest.fn().mockResolvedValue({
+                      data: null,
+                      error: new Error("Database error")
+                    })
+                  }))
+                }))
+              }))
+            }))
+          };
+        }
+        return {};
+      });
+
+      const res = await request(app)
+        .get("/api/upcoming")
+        .set("Authorization", "Bearer valid_token");
+
+      expect(res.status).toBe(500);
     });
   });
 });

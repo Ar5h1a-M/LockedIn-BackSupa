@@ -1,3 +1,4 @@
+// src/routes/search.js
 /**
  * @openapi
  * /api/search:
@@ -45,11 +46,14 @@ import { createClient } from "@supabase/supabase-js";
 
 const router = express.Router();
 
-// Ensure SR key here (server-side only)
-const supabase = createClient(
+// Create Supabase client - make it configurable for testing
+export const createSupabaseClient = () => createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+
+// Use a function that can be overridden in tests
+export let supabase = createSupabaseClient();
 
 const SEARCH_MAP = {
   modules: "modules",
@@ -78,7 +82,9 @@ router.post("/search", async (req, res, next) => {
       query = query.contains("modules", [searchTerm]);
     } else if (column === "full_name") {
       const tokens = searchTerm.split(/\s+/).filter(Boolean);
-      for (const t of tokens) query = query.ilike("full_name", `%${t}%`);
+      for (const t of tokens) {
+        query = query.ilike("full_name", `%${t}%`);
+      }
     } else {
       query = query.ilike(column, `%${searchTerm}%`);
     }
@@ -95,6 +101,10 @@ router.post("/search", async (req, res, next) => {
 router.post("/invite", async (req, res, next) => {
   try {
     const { recipient_id } = req.body || {};
+    if (!recipient_id) {
+      return res.status(400).json({ error: "Missing recipient_id" });
+    }
+
     const authHeader = req.headers.authorization || "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
