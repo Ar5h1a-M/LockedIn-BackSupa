@@ -1,7 +1,7 @@
 # LockedIn Backend
 
 [![Tests](https://github.com/Ar5h1a-M/LockedIn-BackSupa/actions/workflows/test.yml/badge.svg)](https://github.com/Ar5h1a-M/LockedIn-BackSupa/actions)
-[![codecov](https://codecov.io/github/Ar5h1a-M/LockedIn-BackSupa/graph/badge.svg?token=XS629RI4DA)](https://codecov.io/github/Ar5h1a-M/LockedIn-BackSupa)
+[![codecov](https://codecov.io/github/Ar5h1a-M/LockedIn-BackSupa/branch/Dev%2FS3/graph/badge.svg?token=XS629RI4DA)](https://codecov.io/github/Ar5h1a-M/LockedIn-BackSupa)
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
 [![Node.js](https://img.shields.io/badge/Node.js-20.x-green.svg)](https://nodejs.org/)
 
@@ -76,3 +76,4 @@ POST /api/auth/login
 
 
 	
+
