@@ -7,62 +7,64 @@ on:
 
 jobs:
   unit-tests:
+    name: Unit Tests
     runs-on: ubuntu-latest
+    outputs:
+      coverage-file: ${{ steps.coverage-path.outputs.path }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - run: npm install
-      - name: Run tests with coverage
-        run:  npm run test:unit -- --coverageDirectory=coverage/unit
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/unit/lcov.info
-          flags: unittests
-          name: codecov-umbrella
-          
-      - name: Upload coverage report artifact
+      - name: Run unit tests with coverage
+        run: npm run test:unit -- --coverageDirectory=coverage/unit
+
+      - name: Save coverage file path
+        id: coverage-path
+        run: |
+          echo "path=coverage/unit/lcov.info" >> $GITHUB_OUTPUT
+
+      - name: Upload unit test artifact
         uses: actions/upload-artifact@v4
         with:
-          name: unit-coverage-report
-          path: coverage/unit
+          name: unit-coverage
+          path: coverage/unit/lcov.info
 
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
-    env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      NODE_ENV: test
+    needs: unit-tests
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
       - run: npm ci
-      - name: Run integration tests
+
+      - name: Run integration tests with coverage
         run: npm run test:integration -- --coverageDirectory=coverage/integration
         env:
-          JEST_JUNIT_OUTPUT_DIR: ./test-results/integration
-      - name: Upload coverage to Codecov
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NODE_ENV: test
+
+      - name: Download unit test coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: unit-coverage
+          path: coverage/unit
+
+      - name: Merge coverage files
+        run: |
+          npm install -g lcov-result-merger
+          lcov-result-merger "coverage/unit/lcov.info" "coverage/integration/lcov.info" > coverage/merged-lcov.info
+          ls -l coverage
+
+      - name: Upload unified coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/integration/lcov.info
-          flags: integrationtests
-          name: codecov-integ
-
-      - name: Upload integration test results
-        uses: actions/upload-artifact@v4
-        with:
-          name: integration-test-results
-          path: coverage/integration
-          retention-days: 7
-
-  
-  
+          files: coverage/merged-lcov.info
+          name: codecov-umbrella
