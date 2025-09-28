@@ -16,7 +16,7 @@ This is the backend API for **LockedIn**, a study buddy app that helps students 
 It handles authentication (via Supabase Auth + Google OAuth) and user profile management.
 
 - **Framework**: Node.js + Express  
-- **Database & Auth**: Supabase (Postgres + Auth)  
+- **Database & Auth**: Supabase (Postgres + Auth)  .
 - **Deployment**: Render  
 
 ---
@@ -78,4 +78,5 @@ POST /api/auth/login
 
 
 	
+
 
