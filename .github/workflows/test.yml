@@ -57,25 +57,4 @@ jobs:
           retention-days: 7
 
   
-  test-report:
-    name: Test Summary
-    runs-on: ubuntu-latest
-    needs: [unit-tests, integration-tests]
-    if: always()
-    steps:
-      - name: Download unit test coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: unit-coverage-report
-          path: unit-coverage/
-      - name: Download integration test results
-        uses: actions/download-artifact@v4
-        with:
-          name: integration-test-results
-          path: integration-results/
-      - name: Test Summary
-        run: |
-          echo "✅ Unit Tests: ${{ needs.unit-tests.result }}"
-          echo "✅ Integration Tests: ${{ needs.integration-tests.result }}"
-          echo "---"
-          echo "All tests completed!"
+  
