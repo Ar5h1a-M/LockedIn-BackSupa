@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  unit-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,3 +30,54 @@ jobs:
         with:
           name: coverage-report
           path: coverage/
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    env:
+      TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+      TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          JEST_JUNIT_OUTPUT_DIR: ./test-results/integration
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: |
+            test-results/
+            coverage/
+          retention-days: 7
+
+  
+  test-report:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+    if: always()
+    steps:
+      - name: Download unit test coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: unit-coverage-report
+          path: unit-coverage/
+      - name: Download integration test results
+        uses: actions/download-artifact@v4
+        with:
+          name: integration-test-results
+          path: integration-results/
+      - name: Test Summary
+        run: |
+          echo "✅ Unit Tests: ${{ needs.unit-tests.result }}"
+          echo "✅ Integration Tests: ${{ needs.integration-tests.result }}"
+          echo "---"
+          echo "All tests completed!"

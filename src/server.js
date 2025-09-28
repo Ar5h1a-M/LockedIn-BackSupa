@@ -64,6 +64,11 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ error: err?.message || "Internal Server Error" });
 });
 
+if (process.env.NODE_ENV === "test") {
+  console.log("Test environment: Email functionality disabled");
+}
+
+
 
 if (process.env.NODE_ENV !== "test") {
   const PORT = process.env.PORT || 4000;

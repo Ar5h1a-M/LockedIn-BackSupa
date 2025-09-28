@@ -34,7 +34,7 @@ beforeAll(async () => {
     createClient: () => supabaseMock,
   }));
 
-  const mod = await import("../src/server.js");
+  const mod = await import("../../src/server.js");
   app = mod.default || mod;
 });
 

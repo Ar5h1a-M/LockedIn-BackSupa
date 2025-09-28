@@ -151,24 +151,40 @@ async function requireGroupMember(group_id, user_id) {
   return !!data;
 }
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: process.env.SMTP_PORT || 465,
-  secure: true,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-  debug:true,
-  tls: {
-    rejectUnauthorized: false, // allow self-signed / strict certs
-  },
-});
+let transporter;
 
-transporter.verify((error, success) => {
-  if (error) console.log("Test failed:", error);
-  else console.log("Server is ready to send messages");
-});
+if (process.env.NODE_ENV === "test") {
+  console.log("Test environment: Email functionality disabled");
+  transporter = {
+    sendMail: async () => {
+      console.log("[Mock email] sendMail called");
+      return Promise.resolve({ accepted: ["mock@example.com"] });
+    },
+    verify: async () => Promise.resolve(true),
+  };
+} else {
+  transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: process.env.SMTP_PORT || 465,
+    secure: true,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+    debug: true,
+    tls: {
+      rejectUnauthorized: false,
+    },
+  });
+
+  transporter.verify((error, success) => {
+    if (error) console.log("Test failed:", error);
+    else console.log("Server is ready to send messages");
+  });
+}
+
+export { transporter };
+
 
 
 

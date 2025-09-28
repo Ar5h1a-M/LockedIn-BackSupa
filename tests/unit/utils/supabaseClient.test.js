@@ -20,7 +20,7 @@ describe("Supabase Client Utility", () => {
     }));
 
     // Dynamically import AFTER mocking
-    const mod = await import("../../src/utils/supabaseClient.js");
+    const mod = await import("../../../src/utils/supabaseClient.js");
     supabaseClient = mod;
     
     // Get the mocked module using dynamic import
