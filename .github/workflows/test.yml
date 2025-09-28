@@ -15,7 +15,7 @@ jobs:
           node-version: 20
       - run: npm install
       - name: Run tests with coverage
-        run:  npm run test:unit
+        run:  npm run test:unit -- --coverageDirectory=coverage/unit
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -46,9 +46,17 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - name: Run integration tests
-        run: npm run test:integration
+        run: npm run test:integration -- --coverageDirectory=coverage/integration
         env:
           JEST_JUNIT_OUTPUT_DIR: ./test-results/integration
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/integration/lcov.info
+          flags: integrationtests
+          name: codecov-integ
+
       - name: Upload integration test results
         uses: actions/upload-artifact@v4
         with:

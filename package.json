@@ -7,7 +7,7 @@
     "test": "cross-env NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest --coverage --runInBand",
     "test:ci": "npm test -- --coverageReporters=text --coverageReporters=lcov --coverageReporters=clover",
     "test:unit": "cross-env NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest tests/unit --coverage --runInBand",
-    "test:integration": "cross-env NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest tests/integration --runInBand",
+    "test:integration": "cross-env NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest tests/integration --coverage --runInBand",
     "test:all": "npm run test:unit && npm run test:integration",
     "start": "node -r dotenv/config src/server.js"
   },
