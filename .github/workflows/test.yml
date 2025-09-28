@@ -2,7 +2,7 @@ name: Backend Tests
 
 on:
   push:
-    branches: [ main, Dev/S3]
+    branches: [ main, Dev/S3, feature/integration-tests]
   pull_request:
 
 jobs:
