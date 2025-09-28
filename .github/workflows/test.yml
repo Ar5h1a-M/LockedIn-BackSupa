@@ -21,7 +21,7 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/lcov.info
+          files: ./coverage/unit/lcov.info
           flags: unittests
           name: codecov-umbrella
           
@@ -29,7 +29,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unit-coverage-report
-          path: coverage/
+          path: coverage/unit
 
   integration-tests:
     name: Integration Tests
@@ -61,7 +61,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: integration-test-results
-          path: coverage/
+          path: coverage/integration
           retention-days: 7
 
   
