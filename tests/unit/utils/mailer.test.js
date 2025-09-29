@@ -22,7 +22,7 @@ describe("Mailer Utility", () => {
     }));
 
     // Dynamically import AFTER mocking
-    const mod = await import("../../src/utils/mailer.js");
+    const mod = await import("../../../src/utils/mailer.js");
     mailer = mod;
     
     // Get the mocked module using dynamic import

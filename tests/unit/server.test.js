@@ -24,7 +24,7 @@ beforeAll(async () => {
   }));
 
   // ✅ Dynamically import server AFTER mocks + env vars are in place
-  const mod = await import("../src/server.js");
+  const mod = await import("../../src/server.js");
   app = mod.default || mod; // handle both ES default export and CommonJS
 });
 

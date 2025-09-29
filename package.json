@@ -4,8 +4,11 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --coverage --runInBand",
+    "test": "cross-env NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest --coverage --runInBand",
     "test:ci": "npm test -- --coverageReporters=text --coverageReporters=lcov --coverageReporters=clover",
+    "test:unit": "cross-env NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest tests/unit --coverage --coverageReporters=lcov --runInBand",
+    "test:integration": "cross-env NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest tests/integration --coverage --coverageReporters=lcov --runInBand",
+    "test:all": "npm run test:unit && npm run test:integration",
     "start": "node -r dotenv/config src/server.js"
   },
   "repository": {
@@ -27,7 +30,8 @@
     "express": "^5.1.0",
     "nodemailer": "^7.0.6",
     "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.1"
+    "swagger-ui-express": "^5.0.1",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@babel/preset-env": "^7.28.3",

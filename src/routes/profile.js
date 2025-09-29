@@ -67,7 +67,7 @@ router.get("/profile", async (req, res, next) => {
 
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, full_name, email, degree, modules, interest")
+      .select("id, full_name, email, degree, modules, interest, year, gpa, university ")
       .eq("id", user.id)
       .single();
     if (error) throw error;
@@ -81,17 +81,22 @@ router.put("/profile", async (req, res, next) => {
     if (!user) return res.status(401).json({ error: "Unauthorized" });
 
     // Allowed fields to update from UI:
-    const { degree, modules, interest } = req.body || {};
+    const { degree, modules, interest,year, gpa, university } = req.body || {};
     const payload = {};
     if (degree !== undefined) payload.degree = degree;
     if (modules !== undefined) payload.modules = modules;
     if (interest !== undefined) payload.interest = interest;
+    if (year !== undefined) payload.year = year;
+    if (gpa !== undefined) payload.gpa = gpa;
+    if (university !== undefined) payload.university = university;
+
+  
 
     const { data, error } = await supabase
       .from("profiles")
       .update(payload)
       .eq("id", user.id)
-      .select("id, full_name, email, degree, modules, interest")
+      .select("id, full_name, email, degree, modules, interest,year, gpa, university")
       .single();
     if (error) throw error;
     res.json({ profile: data });

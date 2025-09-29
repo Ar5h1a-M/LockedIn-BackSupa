@@ -2,7 +2,7 @@
 
 
 [![Tests](https://github.com/Ar5h1a-M/LockedIn-BackSupa/actions/workflows/test.yml/badge.svg)](https://github.com/Ar5h1a-M/LockedIn-BackSupa/actions)
-[![codecov](https://codecov.io/github/Ar5h1a-M/LockedIn-BackSupa/branch/Dev%2FS3/graph/badge.svg?token=XS629RI4DA)](https://codecov.io/github/Ar5h1a-M/LockedIn-BackSupa)
+[![codecov](https://codecov.io/github/Ar5h1a-M/LockedIn-BackSupa/branch/feature%2Fintegration-tests/graph/badge.svg?token=XS629RI4DA)](https://codecov.io/github/Ar5h1a-M/LockedIn-BackSupa)
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
 [![Node.js](https://img.shields.io/badge/Node.js-20.x-green.svg)](https://nodejs.org/)
 
@@ -16,7 +16,9 @@ This is the backend API for **LockedIn**, a study buddy app that helps students 
 It handles authentication (via Supabase Auth + Google OAuth) and user profile management.
 
 - **Framework**: Node.js + Express  
+
 - **Database & Auth**: Supabase (Postgres + Auth) . 
+
 - **Deployment**: Render  
 
 ---
@@ -78,5 +80,6 @@ POST /api/auth/login
 
 
 	
+
 
 
