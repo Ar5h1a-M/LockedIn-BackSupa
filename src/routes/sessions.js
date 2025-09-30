@@ -151,41 +151,6 @@ async function requireGroupMember(group_id, user_id) {
   return !!data;
 }
 
-// let transporter;
-
-// if (process.env.NODE_ENV === "test") {
-//   console.log("Test environment: Email functionality disabled");
-//   transporter = {
-//     sendMail: async () => {
-//       console.log("[Mock email] sendMail called");
-//       return Promise.resolve({ accepted: ["mock@example.com"] });
-//     },
-//     verify: async () => Promise.resolve(true),
-//   };
-// } else {
-//   transporter = nodemailer.createTransport({
-//     host: process.env.SMTP_HOST,
-//     port: process.env.SMTP_PORT || 465,
-//     secure: true,
-//     auth: {
-//       user: process.env.SMTP_USER,
-//       pass: process.env.SMTP_PASS,
-//     },
-//     debug: true,
-//     tls: {
-//       rejectUnauthorized: false,
-//     },
-//   });
-
-//   transporter.verify((error, success) => {
-//     if (error) console.log("Test failed:", error);
-//     else console.log("Server is ready to send messages");
-//   });
-// }
-
-// export { transporter };
-
-// Enhanced transporter with more debugging
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: process.env.SMTP_PORT || 465,
@@ -194,41 +159,16 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
-  debug: true, // This should show detailed SMTP conversation
-  logger: true, // Add logger for more details
+  debug:true,
   tls: {
-    rejectUnauthorized: false,
+    rejectUnauthorized: false, // allow self-signed / strict certs
   },
 });
 
-// Test email function you can call separately
-async function testEmail() {
-  try {
-    const testResult = await transporter.sendMail({
-      from: process.env.SMTP_USER,
-      to: process.env.SMTP_USER, // Send to yourself
-      subject: 'Test Email from Production',
-      text: 'This is a test email from production'
-    });
-    console.log('Test email sent:', testResult.messageId);
-    return true;
-  } catch (error) {
-    console.error('Test email failed:', error);
-    return false;
-  }
-}
-
-
-
 transporter.verify((error, success) => {
-  if (error) {
-    console.error("SMTP verify failed:", error);
-  } else {
-    console.log("SMTP server is ready:", success);
-  }
+  if (error) console.log("Test failed:", error);
+  else console.log("Server is ready to send messages");
 });
-
-
 
 
 
@@ -303,83 +243,72 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
       });
 
     const conflictResults = await Promise.all(conflictPromises);
-    testEmail();
 
- // Send emails asynchronously with throttling (avoid Gmail rate limits)
-const emailPromises = conflictResults.map(({ member, conflict }, index) => {
-  return new Promise(resolve => {
-    // Delay each email by 300ms * index to avoid hitting Gmail too fast
-    setTimeout(async () => {
-      try {
-        if (conflict) {
-          // Notify creator
-          const { data: creator } = await supabase
-            .from("profiles")
-            .select("email, full_name")
-            .eq("id", user.id)
-            .single();
+    // Send emails or notify creator
+    const emailPromises = conflictResults.map(({ member, conflict }, index) => {
+      return new Promise(async (resolve) => {
+        try {
+          if (conflict) {
+            // Notify creator
+            const { data: creator } = await supabase
+              .from("profiles")
+              .select("email, full_name")
+              .eq("id", user.id)
+              .single();
 
-          if (creator?.email) {
+            if (creator?.email) {
+              await transporter.sendMail({
+                from: process.env.SMTP_USER,
+                to: creator.email,
+                subject: `Conflict: ${member.profiles.full_name} already booked`,
+                text: `${member.profiles.full_name} has already accepted another session at ${start_at}.`,
+              });
+            }
+          } else {
+            // Send RSVP email
+            const acceptLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/accept/${member.profiles.id}`;
+            const declineLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/decline/${member.profiles.id}`;
+
+            const htmlContent = `
+              <h2>New Study Session Scheduled</h2>
+              <p><strong>Date/Time:</strong> ${start_at}</p>
+              <p><strong>Venue:</strong> ${venue}</p>
+              <p><strong>Topic:</strong> ${topic}</p>
+              <p><strong>Time goal:</strong> ${time_goal_minutes} mins</p>
+              <p><strong>Content goal:</strong> ${content_goal}</p>
+              <p>
+                <a href="${acceptLink}" style="padding:10px 20px;background:#4CAF50;color:#fff;text-decoration:none;border-radius:5px;">
+                  ✅ Accept
+                </a>
+                &nbsp;&nbsp;
+                <a href="${declineLink}" style="padding:10px 20px;background:#f44336;color:#fff;text-decoration:none;border-radius:5px;">
+                  ❌ Decline
+                </a>
+              </p>
+            `;
+
             await transporter.sendMail({
               from: process.env.SMTP_USER,
-              to: creator.email,
-              subject: `Conflict: ${member.profiles.full_name} already booked`,
-              text: `${member.profiles.full_name} has already accepted another session at ${start_at}.`,
+              to: member.profiles.email,
+              subject: `New Study Session in your group`,
+              html: htmlContent,
             });
-            console.log("Conflict email sent to", creator.email);
+            // Insert pending invite
+            await supabase.from("session_invites").insert({
+              session_id: sessionData.id,
+              user_id: member.profiles.id,
+              status: "pending",
+            });
           }
-        } else {
-          // Send RSVP email
-          const acceptLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/accept/${member.profiles.id}`;
-          const declineLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/decline/${member.profiles.id}`;
-
-          const htmlContent = `
-            <h2>New Study Session Scheduled</h2>
-            <p><strong>Date/Time:</strong> ${start_at}</p>
-            <p><strong>Venue:</strong> ${venue}</p>
-            <p><strong>Topic:</strong> ${topic}</p>
-            <p><strong>Time goal:</strong> ${time_goal_minutes} mins</p>
-            <p><strong>Content goal:</strong> ${content_goal}</p>
-            <p>
-              <a href="${acceptLink}" style="padding:10px 20px;background:#4CAF50;color:#fff;text-decoration:none;border-radius:5px;">
-                ✅ Accept
-              </a>
-              &nbsp;&nbsp;
-              <a href="${declineLink}" style="padding:10px 20px;background:#f44336;color:#fff;text-decoration:none;border-radius:5px;">
-                ❌ Decline
-              </a>
-            </p>
-          `;
-
-          await transporter.sendMail({
-            from: process.env.SMTP_USER,
-            to: member.profiles.email,
-            subject: `New Study Session in your group`,
-            html: htmlContent,
-          });
-          console.log("RSVP email sent to", member.profiles.email);
-
-          // Insert pending invite
-          await supabase.from("session_invites").insert({
-            session_id: sessionData.id,
-            user_id: member.profiles.id,
-            status: "pending",
-          });
+        } catch (err) {
+          console.error(err);
+        } finally {
+          resolve(null);
         }
-      } catch (err) {
-        console.error("Failed to send email", err);
-      } finally {
-        resolve(null); // resolve regardless of success/failure
-      }
-    }, index * 300); // 300ms stagger per email
-  });
-});
+      });
+    });
 
-// Fire off emails in the background, don’t block main request
-Promise.allSettled(emailPromises)
-  .then(() => console.log("All emails attempted"))
-  .catch(err => console.error("Email sending failed:", err));
-
+    await Promise.all(emailPromises);
 
     res.json({ session: sessionData });
   } catch (e) {
