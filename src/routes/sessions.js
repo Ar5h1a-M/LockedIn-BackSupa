@@ -354,7 +354,9 @@ const emailPromises = conflictResults.map(({ member, conflict }, index) => {
 });
 
 // Fire off emails in the background, don’t block main request
-Promise.allSettled(emailPromises);
+Promise.allSettled(emailPromises)
+  .then(() => console.log("All emails attempted"))
+  .catch(err => console.error("Email sending failed:", err));
 
 
     res.json({ session: sessionData });
