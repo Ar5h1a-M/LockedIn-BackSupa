@@ -200,9 +200,13 @@ const transporter = nodemailer.createTransport({
 });
 
 transporter.verify((error, success) => {
-  if (error) console.log("Test failed:", error);
-  else console.log("Server is ready to send messages");
+  if (error) {
+    console.error("SMTP verify failed:", error);
+  } else {
+    console.log("SMTP server is ready:", success);
+  }
 });
+
 
 
 
