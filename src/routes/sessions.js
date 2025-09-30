@@ -279,71 +279,79 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
 
     const conflictResults = await Promise.all(conflictPromises);
 
-    // Send emails or notify creator
-    const emailPromises = conflictResults.map(({ member, conflict }, index) => {
-      return new Promise(async (resolve) => {
-        try {
-          if (conflict) {
-            // Notify creator
-            const { data: creator } = await supabase
-              .from("profiles")
-              .select("email, full_name")
-              .eq("id", user.id)
-              .single();
+ // Send emails asynchronously with throttling (avoid Gmail rate limits)
+const emailPromises = conflictResults.map(({ member, conflict }, index) => {
+  return new Promise(resolve => {
+    // Delay each email by 300ms * index to avoid hitting Gmail too fast
+    setTimeout(async () => {
+      try {
+        if (conflict) {
+          // Notify creator
+          const { data: creator } = await supabase
+            .from("profiles")
+            .select("email, full_name")
+            .eq("id", user.id)
+            .single();
 
-            if (creator?.email) {
-              await transporter.sendMail({
-                from: process.env.SMTP_USER,
-                to: creator.email,
-                subject: `Conflict: ${member.profiles.full_name} already booked`,
-                text: `${member.profiles.full_name} has already accepted another session at ${start_at}.`,
-              });
-            }
-          } else {
-            // Send RSVP email
-            const acceptLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/accept/${member.profiles.id}`;
-            const declineLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/decline/${member.profiles.id}`;
-
-            const htmlContent = `
-              <h2>New Study Session Scheduled</h2>
-              <p><strong>Date/Time:</strong> ${start_at}</p>
-              <p><strong>Venue:</strong> ${venue}</p>
-              <p><strong>Topic:</strong> ${topic}</p>
-              <p><strong>Time goal:</strong> ${time_goal_minutes} mins</p>
-              <p><strong>Content goal:</strong> ${content_goal}</p>
-              <p>
-                <a href="${acceptLink}" style="padding:10px 20px;background:#4CAF50;color:#fff;text-decoration:none;border-radius:5px;">
-                  ✅ Accept
-                </a>
-                &nbsp;&nbsp;
-                <a href="${declineLink}" style="padding:10px 20px;background:#f44336;color:#fff;text-decoration:none;border-radius:5px;">
-                  ❌ Decline
-                </a>
-              </p>
-            `;
-
+          if (creator?.email) {
             await transporter.sendMail({
               from: process.env.SMTP_USER,
-              to: member.profiles.email,
-              subject: `New Study Session in your group`,
-              html: htmlContent,
+              to: creator.email,
+              subject: `Conflict: ${member.profiles.full_name} already booked`,
+              text: `${member.profiles.full_name} has already accepted another session at ${start_at}.`,
             });
-            // Insert pending invite
-            await supabase.from("session_invites").insert({
-              session_id: sessionData.id,
-              user_id: member.profiles.id,
-              status: "pending",
-            });
+            console.log("Conflict email sent to", creator.email);
           }
-        } catch (err) {
-          console.error(err);
-        } finally {
-          resolve(null);
-        }
-      });
-    });
+        } else {
+          // Send RSVP email
+          const acceptLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/accept/${member.profiles.id}`;
+          const declineLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/decline/${member.profiles.id}`;
 
-    await Promise.all(emailPromises);
+          const htmlContent = `
+            <h2>New Study Session Scheduled</h2>
+            <p><strong>Date/Time:</strong> ${start_at}</p>
+            <p><strong>Venue:</strong> ${venue}</p>
+            <p><strong>Topic:</strong> ${topic}</p>
+            <p><strong>Time goal:</strong> ${time_goal_minutes} mins</p>
+            <p><strong>Content goal:</strong> ${content_goal}</p>
+            <p>
+              <a href="${acceptLink}" style="padding:10px 20px;background:#4CAF50;color:#fff;text-decoration:none;border-radius:5px;">
+                ✅ Accept
+              </a>
+              &nbsp;&nbsp;
+              <a href="${declineLink}" style="padding:10px 20px;background:#f44336;color:#fff;text-decoration:none;border-radius:5px;">
+                ❌ Decline
+              </a>
+            </p>
+          `;
+
+          await transporter.sendMail({
+            from: process.env.SMTP_USER,
+            to: member.profiles.email,
+            subject: `New Study Session in your group`,
+            html: htmlContent,
+          });
+          console.log("RSVP email sent to", member.profiles.email);
+
+          // Insert pending invite
+          await supabase.from("session_invites").insert({
+            session_id: sessionData.id,
+            user_id: member.profiles.id,
+            status: "pending",
+          });
+        }
+      } catch (err) {
+        console.error("Failed to send email", err);
+      } finally {
+        resolve(null); // resolve regardless of success/failure
+      }
+    }, index * 300); // 300ms stagger per email
+  });
+});
+
+// Fire off emails in the background, don’t block main request
+Promise.allSettled(emailPromises);
+
 
     res.json({ session: sessionData });
   } catch (e) {
