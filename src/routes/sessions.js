@@ -5,7 +5,9 @@
  *   post:
  *     summary: Create a planned session
  *     tags: [Sessions]
- *     security: [{ bearerAuth: [] }]
+ *     security:
+        - bearerAuth: []
+        - apiKeyAuth: []
  *     parameters:
  *       - in: path
  *         name: groupId
@@ -37,7 +39,9 @@
  *   get:
  *     summary: List sessions for a group
  *     tags: [Sessions]
- *     security: [{ bearerAuth: [] }]
+ *     security:
+        - bearerAuth: []
+        - apiKeyAuth: []
  *     parameters:
  *       - in: path
  *         name: groupId
@@ -55,7 +59,9 @@
  *   delete:
  *     summary: Delete a session (creator only)
  *     tags: [Sessions]
- *     security: [{ bearerAuth: [] }]
+ *     security:
+        - bearerAuth: []
+        - apiKeyAuth: []
  *     parameters:
  *       - in: path
  *         name: groupId
@@ -78,7 +84,9 @@
  *   post:
  *     summary: Post a group message
  *     tags: [Sessions]
- *     security: [{ bearerAuth: [] }]
+ *     security:
+        - bearerAuth: []
+        - apiKeyAuth: []
  *     parameters:
  *       - in: path
  *         name: groupId
@@ -107,7 +115,9 @@
  *   get:
  *     summary: Get group messages (optionally by session)
  *     tags: [Sessions]
- *     security: [{ bearerAuth: [] }]
+ *     security:
+        - bearerAuth: []
+        - apiKeyAuth: []
  *     parameters:
  *       - in: path
  *         name: groupId
@@ -131,14 +141,7 @@ import nodemailer from "nodemailer";
 const router = express.Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-async function getUser(req) {
-  const authHeader = req.headers.authorization || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  if (!token) return null;
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error) throw error;
-  return data?.user || null;
-}
+import { getUserOrService as getUser } from "../middleware/auth.js";
 
 async function requireGroupMember(group_id, user_id) {
   const { data, error } = await supabase
