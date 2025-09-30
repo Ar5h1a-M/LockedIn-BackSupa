@@ -15,7 +15,7 @@ const swaggerDefinition = {
   components: {
     securitySchemes: {
       bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
-      apiKeyAuth: { type: "apiKey", in: "header", name: "lock-api-key" },
+      
     },
     schemas: {
       // Reusable shapes (trimmed to essentials so it stays readable)
