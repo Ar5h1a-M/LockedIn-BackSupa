@@ -185,6 +185,7 @@ async function requireGroupMember(group_id, user_id) {
 
 // export { transporter };
 
+// Enhanced transporter with more debugging
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: process.env.SMTP_PORT || 465,
@@ -193,11 +194,31 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
-  debug:true,
+  debug: true, // This should show detailed SMTP conversation
+  logger: true, // Add logger for more details
   tls: {
-    rejectUnauthorized: false, // allow self-signed / strict certs
+    rejectUnauthorized: false,
   },
 });
+
+// Test email function you can call separately
+async function testEmail() {
+  try {
+    const testResult = await transporter.sendMail({
+      from: process.env.SMTP_USER,
+      to: process.env.SMTP_USER, // Send to yourself
+      subject: 'Test Email from Production',
+      text: 'This is a test email from production'
+    });
+    console.log('Test email sent:', testResult.messageId);
+    return true;
+  } catch (error) {
+    console.error('Test email failed:', error);
+    return false;
+  }
+}
+
+
 
 transporter.verify((error, success) => {
   if (error) {
@@ -282,6 +303,7 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
       });
 
     const conflictResults = await Promise.all(conflictPromises);
+    testEmail();
 
  // Send emails asynchronously with throttling (avoid Gmail rate limits)
 const emailPromises = conflictResults.map(({ member, conflict }, index) => {
