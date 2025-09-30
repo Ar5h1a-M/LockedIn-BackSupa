@@ -15,7 +15,6 @@ const swaggerDefinition = {
   components: {
     securitySchemes: {
       bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
-      
     },
     schemas: {
       // Reusable shapes (trimmed to essentials so it stays readable)
