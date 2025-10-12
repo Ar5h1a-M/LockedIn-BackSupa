@@ -1,3 +1,49 @@
+/**
+ * @openapi
+ * /api/assessments:
+ *   post:
+ *     summary: Create an assessment/test entry
+ *     tags: [Assessments]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, scope, test_date]
+ *             properties:
+ *               name: { type: string }
+ *               scope: { type: string }
+ *               test_date: { type: string, format: date-time }
+ *     responses:
+ *       200: { description: Created }
+ *       400: { description: Validation error }
+ *       401: { description: Unauthorized }
+ */
+
+/**
+ * @openapi
+ * /api/assessments/upcoming:
+ *   get:
+ *     summary: Get my next 3 upcoming assessments
+ *     tags: [Assessments]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: Upcoming tests
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 tests:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *       401: { description: Unauthorized }
+ */
+
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 
