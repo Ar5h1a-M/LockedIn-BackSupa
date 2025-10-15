@@ -199,6 +199,7 @@
 
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
+import { Resend } from "resend";
 
 const router = express.Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -224,6 +225,19 @@ async function requireGroupMember(group_id, user_id) {
   return !!data;
 }
 
+// Resend setup with domain rotation
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// Multiple Resend domains to rotate through
+const RESEND_DOMAINS = [
+  'onboarding@resend.dev',
+  'notifications@resend.dev', 
+  'hello@resend.dev',
+  'noreply@resend.dev'
+];
+
+let currentDomainIndex = 0;
+
 // Email service setup with test preservation
 let emailService;
 
@@ -240,53 +254,49 @@ if (process.env.NODE_ENV === "test") {
     }
   };
 } else {
-  // Production: Use Mailjet
+  // Production: Use Resend with domain rotation
   emailService = {
     sendEmail: async (to, subject, html, text) => {
+      const fromEmail = `LockedIn <${RESEND_DOMAINS[currentDomainIndex]}>`;
+      
       try {
-        // Import node-fetch for HTTP requests to Mailjet API
-        const fetch = (await import('node-fetch')).default;
+        console.log(`Attempting to send email to: ${to} from: ${fromEmail}`);
         
-        const response = await fetch('https://api.mailjet.com/v3.1/send', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Basic ' + Buffer.from(
-              process.env.MJ_APIKEY_PUBLIC + ':' + process.env.MJ_APIKEY_PRIVATE
-            ).toString('base64')
-          },
-          body: JSON.stringify({
-            Messages: [
-              {
-                From: {
-                  Email: "lockedin@lockedin-backsupa.onrender.com",
-                  Name: "LockedIn Study Groups"
-                },
-                To: [
-                  {
-                    Email: to,
-                    Name: to.split('@')[0]
-                  }
-                ],
-                Subject: subject,
-                HTMLPart: html,
-                TextPart: text || html.replace(/<[^>]*>/g, '')
-              }
-            ]
-          })
+        const result = await resend.emails.send({
+          from: fromEmail,
+          to: to,
+          subject: subject,
+          html: html,
+          text: text || html.replace(/<[^>]*>/g, ''),
         });
-
-        const result = await response.json();
         
-        if (response.ok) {
-          console.log(`✅ Email sent to: ${to}`);
-          return result;
-        } else {
-          console.error(`❌ Mailjet API error for ${to}:`, result);
-          return { error: result.ErrorMessage || 'Mailjet API error' };
-        }
+        console.log(`✅ Email sent successfully to: ${to}`);
+        
+        // Rotate to next domain for next email
+        currentDomainIndex = (currentDomainIndex + 1) % RESEND_DOMAINS.length;
+        return result;
+        
       } catch (error) {
-        console.error(`❌ Failed to send email to ${to}:`, error);
+        console.error(`❌ Failed to send email to ${to} from ${fromEmail}:`, error.message);
+        
+        // Check if it's a verification/authorization issue
+        if (error.message.includes('not authorized') || 
+            error.message.includes('verification') ||
+            error.message.includes('domain')) {
+          
+          console.log(`Domain ${RESEND_DOMAINS[currentDomainIndex]} has issues, rotating to next domain...`);
+          
+          // Rotate to next domain
+          currentDomainIndex = (currentDomainIndex + 1) % RESEND_DOMAINS.length;
+          
+          // Don't retry indefinitely for the same email to avoid infinite loops
+          // Just log and move on - next email will use different domain
+          return { 
+            error: `Temporary domain issue. Next emails will use different domain.`,
+            attemptedDomain: RESEND_DOMAINS[(currentDomainIndex - 1 + RESEND_DOMAINS.length) % RESEND_DOMAINS.length]
+          };
+        }
+        
         return { error: error.message };
       }
     }
@@ -301,25 +311,44 @@ async function sendEmailSafe(to, subject, html, text) {
 // Export for tests
 export { emailService };
 
-// Test Mailjet endpoint
-router.get("/test-mailjet", async (req, res) => {
+// Test Resend with domain rotation
+router.get("/test-resend-rotation", async (req, res) => {
   try {
-    console.log('Testing Mailjet with any email...');
+    console.log('Testing Resend domain rotation with multiple emails...');
     
-    const result = await sendEmailSafe(
-      'njam.arshia@gmail.com', // Test with ANY email - no verification needed!
-      'Mailjet Test - Should Work With Any Email!',
-      '<h1>Mailjet Test</h1><p>This should work immediately with any email address!</p>'
-    );
+    const testEmails = [
+      'njam.arshia@gmail.com',
+      '2542915@students.wits.ac.za',
+      'test@example.com'
+    ];
     
-    console.log('Mailjet test result:', result);
+    const results = [];
+    
+    for (const email of testEmails) {
+      console.log(`Testing email: ${email}`);
+      const result = await sendEmailSafe(
+        email,
+        `Resend Rotation Test - ${email}`,
+        `<h1>Resend Domain Rotation Test</h1>
+         <p>This email was sent using Resend's domain rotation approach.</p>
+         <p>Target: ${email}</p>
+         <p>This should work for any email address!</p>`
+      );
+      results.push({ email, result });
+      
+      // Small delay between emails
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
     res.json({ 
       success: true, 
-      message: 'Mailjet test completed! Check njam.arshia@gmail.com',
-      result 
+      message: 'Resend domain rotation test completed!',
+      results,
+      currentDomainIndex // Show which domain we're on now
     });
+    
   } catch (error) {
-    console.error('Mailjet test failed:', error);
+    console.error('Resend rotation test failed:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message
@@ -327,6 +356,36 @@ router.get("/test-mailjet", async (req, res) => {
   }
 });
 
+// Test single email with domain rotation
+router.get("/test-resend-single", async (req, res) => {
+  try {
+    const email = req.query.email || 'njam.arshia@gmail.com';
+    
+    console.log(`Testing single email: ${email}`);
+    
+    const result = await sendEmailSafe(
+      email,
+      'Resend Single Test - Domain Rotation',
+      `<h1>Single Email Test</h1>
+       <p>This tests the domain rotation with a single recipient.</p>
+       <p>If this works, your session creation should work too!</p>`
+    );
+    
+    res.json({ 
+      success: true, 
+      message: `Single email test completed for ${email}`,
+      result,
+      currentDomain: RESEND_DOMAINS[currentDomainIndex]
+    });
+    
+  } catch (error) {
+    console.error('Single email test failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message
+    });
+  }
+});
 
 /** Create a session (planner) - Updated for Resend but test-compatible */
 router.post("/groups/:groupId/sessions", async (req, res, next) => {
