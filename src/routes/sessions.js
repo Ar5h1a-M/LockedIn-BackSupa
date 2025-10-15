@@ -223,6 +223,8 @@ async function requireGroupMember(group_id, user_id) {
   return !!data;
 }
 
+const FROM_EMAIL = '"LockedIn" <noreply@sendgrid.net>';
+
 let transporter;
 
 if (process.env.NODE_ENV === "test") {
@@ -236,17 +238,13 @@ if (process.env.NODE_ENV === "test") {
   };
 } else {
    transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
+  host: 'smtp.sendgrid.net',
   port: 587,
-  secure: false, // true for 465, false for other ports
+  secure: false,
   auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS, // your app password
+    user: 'apikey',
+    pass: process.env.SMTP_PASS_SG, // Your SendGrid API key
   },
-  tls: {
-    ciphers: 'SSLv3',
-    rejectUnauthorized: false
-  }
 });
 
   transporter.verify((error, success) => {
@@ -259,26 +257,29 @@ export { transporter };
 
 
 //  test email connectivity
-router.get("/test-email", async (req, res) => {
+router.get("/test-sendgrid-simple", async (req, res) => {
   try {
-    await transporter.verify();
-    
-    const testEmail = await transporter.sendMail({
-      from: process.env.SMTP_USER,
-      to: process.env.SMTP_USER, // send to yourself
-      subject: "Test Email",
-      text: "This is a test email from your application"
+    const result = await transporter.sendMail({
+      from: '"LockedIn" <noreply@sendgrid.net>',
+      to: '2542915@students.wits.ac.za',
+      subject: 'Test from SendGrid - No Verification',
+      text: 'Testing if SendGrid works without sender verification'
     });
     
-    res.json({ success: true, message: "Email sent successfully", info: testEmail });
+    console.log('Test email result:', result);
+    res.json({ success: true, message: 'Test sent - check your email!' });
+    
   } catch (error) {
-    console.error("Email test failed:", error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('SendGrid test failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
 });
 
 /** Create a session (planner) */
-/** Create a session (planner) */
+
 router.post("/groups/:groupId/sessions", async (req, res, next) => {
   try {
     const user = await getUser(req);
@@ -388,7 +389,7 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
 
           if (creator?.email) {
             await transporter.sendMail({
-              from: process.env.SMTP_USER,
+              from: FROM_EMAIL,
               to: creator.email,
               subject: `Conflict: ${memberProfile.full_name} already booked`,
               text: `${memberProfile.full_name} has already accepted another session at ${start_at}.`,
@@ -422,7 +423,7 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
           `;
 
           await transporter.sendMail({
-            from: process.env.SMTP_USER,
+            from: FROM_EMAIL,
             to: memberProfile.email,
             subject: `New Study Session in your group`,
             html: htmlContent,
