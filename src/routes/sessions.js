@@ -199,10 +199,12 @@
 
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
+
 const router = express.Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
+// Keep your existing helper functions
 async function getUser(req) {
   const authHeader = req.headers.authorization || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -223,63 +225,79 @@ async function requireGroupMember(group_id, user_id) {
   return !!data;
 }
 
-const FROM_EMAIL = '"LockedIn" <noreply@sendgrid.net>';
-
-let transporter;
+// Email service setup with test preservation
+let emailService;
 
 if (process.env.NODE_ENV === "test") {
   console.log("Test environment: Email functionality disabled");
-  transporter = {
-    sendMail: async () => {
-      console.log("[Mock email] sendMail called");
-      return Promise.resolve({ accepted: ["mock@example.com"] });
-    },
-    verify: async () => Promise.resolve(true),
+  emailService = {
+    sendEmail: async (to, subject, html, text) => {
+      console.log("[Mock email] sendEmail called to:", to);
+      return Promise.resolve({ 
+        id: "mock-email-id",
+        to: to,
+        subject: subject 
+      });
+    }
   };
 } else {
-   transporter = nodemailer.createTransport({
-  host: 'smtp.sendgrid.net',
-  port: 587,
-  secure: false,
-  auth: {
-    user: 'apikey',
-    pass: process.env.SMTP_PASS_SG, // Your SendGrid API key
-  },
-});
-
-  transporter.verify((error, success) => {
-    if (error) console.log("Test failed:", error);
-    else console.log("Server is ready to send messages");
-  });
+  // Production: Use Resend
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  emailService = {
+    sendEmail: async (to, subject, html, text) => {
+      try {
+        const result = await resend.emails.send({
+          from: 'LockedIn <onboarding@resend.dev>',
+          to: to,
+          subject: subject,
+          html: html,
+          text: text || html.replace(/<[^>]*>/g, ''),
+        });
+        console.log(`✅ Email sent to: ${to}`);
+        return result;
+      } catch (error) {
+        console.error(`❌ Failed to send email to ${to}:`, error);
+        return { error: error.message };
+      }
+    }
+  };
 }
 
-export { transporter };
+// Safe email function that works in both test and production
+async function sendEmailSafe(to, subject, html, text) {
+  return await emailService.sendEmail(to, subject, html, text);
+}
 
+// Export for tests (if needed)
+export { emailService };
 
-//  test email connectivity
-router.get("/test-sendgrid-simple", async (req, res) => {
+// Test Resend endpoint
+router.get("/test-resend", async (req, res) => {
   try {
-    const result = await transporter.sendMail({
-      from: '"LockedIn" <noreply@sendgrid.net>',
-      to: '2542915@students.wits.ac.za',
-      subject: 'Test from SendGrid - No Verification',
-      text: 'Testing if SendGrid works without sender verification'
+    console.log('Testing Resend...');
+    
+    const result = await sendEmailSafe(
+      '2542915@students.wits.ac.za',
+      'Test from Resend - Should Work!',
+      '<h1>Resend Test</h1><p>This should work immediately on Render!</p>'
+    );
+    
+    console.log('Resend test result:', result);
+    res.json({ 
+      success: true, 
+      message: 'Resend test completed!',
+      result 
     });
-    
-    console.log('Test email result:', result);
-    res.json({ success: true, message: 'Test sent - check your email!' });
-    
   } catch (error) {
-    console.error('SendGrid test failed:', error);
+    console.error('Resend test failed:', error);
     res.status(500).json({ 
       success: false, 
-      error: error.message 
+      error: error.message
     });
   }
 });
 
-/** Create a session (planner) */
-
+/** Create a session (planner) - Updated for Resend but test-compatible */
 router.post("/groups/:groupId/sessions", async (req, res, next) => {
   try {
     const user = await getUser(req);
@@ -319,11 +337,10 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
       .from("group_members")
       .select("profiles(id, email, full_name)")
       .eq("group_id", group_id)
-      .neq("user_id", user.id); // Exclude creator
+      .neq("user_id", user.id);
 
     if (membersError) {
       console.error("Error fetching members:", membersError);
-      // Continue without emails rather than failing completely
       return res.json({ session: sessionData });
     }
 
@@ -334,52 +351,39 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
 
     console.log("Processing emails for members:", members.map(m => m.profiles.email));
 
-    // Process members with conflict detection and email sending
-    const processMember = async (member, index) => {
-      try {
-        // Add delay to avoid throttling (300ms between emails)
-        await new Promise(resolve => setTimeout(resolve, index * 300));
-        
-        const memberProfile = member.profiles;
-        
-        // Skip if no email
-        if (!memberProfile.email) {
-          console.log(`Skipping member ${memberProfile.full_name} - no email`);
-          return;
-        }
+    // Process members with email sending
+    for (let i = 0; i < members.length; i++) {
+      const member = members[i];
+      const memberProfile = member.profiles;
+      
+      if (!memberProfile.email) continue;
 
+      // Add delay between emails
+      if (i > 0) await new Promise(resolve => setTimeout(resolve, 300));
+      
+      try {
         // Check for conflicts
-        const { data: acceptedSessions, error: inviteError } = await supabase
+        const { data: acceptedSessions } = await supabase
           .from("session_invites")
           .select("session_id")
           .eq("user_id", memberProfile.id)
           .eq("status", "accepted");
 
-        if (inviteError) {
-          console.error(`Error checking invites for ${memberProfile.email}:`, inviteError);
-          return;
-        }
-
         let hasConflict = false;
-        
         if (acceptedSessions && acceptedSessions.length > 0) {
           const sessionIds = acceptedSessions.map(s => s.session_id);
-          
-          const { data: conflicts, error: conflictError } = await supabase
+          const { data: conflicts } = await supabase
             .from("sessions")
             .select("id, start_at, topic")
             .in("id", sessionIds);
 
-          if (conflictError) {
-            console.error(`Error checking conflicts for ${memberProfile.email}:`, conflictError);
-          } else if (conflicts) {
+          if (conflicts) {
             hasConflict = conflicts.some(c => new Date(c.start_at).getTime() === starts.getTime());
           }
         }
 
         if (hasConflict) {
-          // Notify creator about conflict
-          console.log(`Conflict detected for ${memberProfile.full_name}, notifying creator`);
+          console.log(`Conflict detected for ${memberProfile.full_name}`);
           
           const { data: creator } = await supabase
             .from("profiles")
@@ -388,16 +392,14 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
             .single();
 
           if (creator?.email) {
-            await transporter.sendMail({
-              from: FROM_EMAIL,
-              to: creator.email,
-              subject: `Conflict: ${memberProfile.full_name} already booked`,
-              text: `${memberProfile.full_name} has already accepted another session at ${start_at}.`,
-            });
-            console.log(`Conflict email sent to creator about ${memberProfile.full_name}`);
+            await sendEmailSafe(
+              creator.email,
+              `Conflict: ${memberProfile.full_name} already booked`,
+              `${memberProfile.full_name} has already accepted another session at ${start_at}.`
+            );
           }
         } else {
-          // Send RSVP email to member
+          // Send RSVP email
           const acceptLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/accept/${memberProfile.id}`;
           const declineLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/decline/${memberProfile.id}`;
 
@@ -417,36 +419,25 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
                 ❌ Decline
               </a>
             </p>
-            <p><small>If the buttons don't work, copy and paste these links:<br/>
-            Accept: ${acceptLink}<br/>
-            Decline: ${declineLink}</small></p>
           `;
 
-          await transporter.sendMail({
-            from: FROM_EMAIL,
-            to: memberProfile.email,
-            subject: `New Study Session in your group`,
-            html: htmlContent,
-          });
+          await sendEmailSafe(
+            memberProfile.email,
+            `New Study Session in your group`,
+            htmlContent
+          );
           
-          // Insert pending invite
+          // Create invite record
           await supabase.from("session_invites").insert({
             session_id: sessionData.id,
             user_id: memberProfile.id,
             status: "pending",
           });
-          
-          console.log(`Invite email sent to ${memberProfile.email}`);
         }
       } catch (err) {
-        console.error(`Error processing member ${member.profiles.email}:`, err);
+        console.error(`Error processing member ${memberProfile.email}:`, err);
       }
-    };
-
-    // Process all members sequentially to avoid throttling
-    // Use Promise.allSettled to continue even if some fail
-    const emailPromises = members.map((member, index) => processMember(member, index));
-    await Promise.allSettled(emailPromises);
+    }
 
     console.log("Session creation and email processing completed");
     res.json({ session: sessionData });
@@ -456,6 +447,7 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
     next(e);
   }
 });
+
 
 /** RSVP via email links */
 router.get("/sessions/:sessionId/accept/:userId", async (req, res) => {
@@ -533,12 +525,12 @@ router.post("/groups/:groupId/sessions/:sessionId/respond", async (req, res, nex
         const { data: creator } = await supabase.from("profiles").select("email").eq("id", session.creator_id).single();
 
         if (creator?.email) {
-          await transporter.sendMail({
-            from: process.env.SMTP_USER,
-            to: creator.email,
-            subject: `Conflict: ${prof?.full_name} already booked`,
-            text: `${prof?.full_name} has already accepted another session at ${session.start_at}.`,
-          });
+          // Updated: Use sendEmailSafe instead of transporter.sendMail
+          await sendEmailSafe(
+            creator.email,
+            `Conflict: ${prof?.full_name} already booked`,
+            `${prof?.full_name} has already accepted another session at ${session.start_at}.`
+          );
         }
 
         return res.status(409).json({ error: "You already accepted a session at this time" });
