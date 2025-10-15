@@ -235,19 +235,19 @@ if (process.env.NODE_ENV === "test") {
     verify: async () => Promise.resolve(true),
   };
 } else {
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: process.env.SMTP_PORT || 465,
-    secure: true,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-    debug: true,
-    tls: {
-      rejectUnauthorized: false,
-    },
-  });
+   transporter = nodemailer.createTransport({
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false, // true for 465, false for other ports
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS, // your app password
+  },
+  tls: {
+    ciphers: 'SSLv3',
+    rejectUnauthorized: false
+  }
+});
 
   transporter.verify((error, success) => {
     if (error) console.log("Test failed:", error);
