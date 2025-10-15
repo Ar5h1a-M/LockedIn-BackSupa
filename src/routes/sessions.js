@@ -1,12 +1,19 @@
-// routes/sessions.js
+// src/routes/sessions.js
+
 /**
  * @openapi
  * /api/groups/{groupId}/sessions:
  *   post:
  *     summary: Create a planned session
  *     tags: [Sessions]
- *     security: [{ bearerAuth: [] }]
+ *     security:
+ *       - bearerAuth: []         # normal mode
  *     parameters:
+ *       - in: header
+ *         name: x-partner-key
+ *         required: false
+ *         schema: { type: string }
+ *         description: Partner API key (bypasses Bearer auth if valid)
  *       - in: path
  *         name: groupId
  *         schema: { type: integer }
@@ -37,8 +44,14 @@
  *   get:
  *     summary: List sessions for a group
  *     tags: [Sessions]
- *     security: [{ bearerAuth: [] }]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
+ *       - in: header
+ *         name: x-partner-key
+ *         required: false
+ *         schema: { type: string }
+ *         description: Partner API key (bypasses Bearer auth if valid)
  *       - in: path
  *         name: groupId
  *         schema: { type: integer }
@@ -55,8 +68,14 @@
  *   delete:
  *     summary: Delete a session (creator only)
  *     tags: [Sessions]
- *     security: [{ bearerAuth: [] }]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
+ *       - in: header
+ *         name: x-partner-key
+ *         required: false
+ *         schema: { type: string }
+ *         description: Partner API key (bypasses Bearer auth if valid)
  *       - in: path
  *         name: groupId
  *         schema: { type: integer }
@@ -78,8 +97,14 @@
  *   post:
  *     summary: Post a group message
  *     tags: [Sessions]
- *     security: [{ bearerAuth: [] }]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
+ *       - in: header
+ *         name: x-partner-key
+ *         required: false
+ *         schema: { type: string }
+ *         description: Partner API key (bypasses Bearer auth if valid)
  *       - in: path
  *         name: groupId
  *         schema: { type: integer }
@@ -107,8 +132,14 @@
  *   get:
  *     summary: Get group messages (optionally by session)
  *     tags: [Sessions]
- *     security: [{ bearerAuth: [] }]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
+ *       - in: header
+ *         name: x-partner-key
+ *         required: false
+ *         schema: { type: string }
+ *         description: Partner API key (bypasses Bearer auth if valid)
  *       - in: path
  *         name: groupId
  *         schema: { type: integer }
@@ -124,6 +155,47 @@
  *       401: { description: Unauthorized }
  *       403: { description: Not a group member }
  */
+
+/**
+ * @openapi
+ * /api/sessions/{sessionId}/accept/{userId}:
+ *   get:
+ *     summary: RSVP accept a session via email link
+ *     tags: [Sessions]
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         schema: { type: integer }
+ *         required: true
+ *       - in: path
+ *         name: userId
+ *         schema: { type: string }
+ *         required: true
+ *     responses:
+ *       200: { description: Accepted }
+ *       500: { description: Error updating RSVP }
+ */
+
+/**
+ * @openapi
+ * /api/sessions/{sessionId}/decline/{userId}:
+ *   get:
+ *     summary: RSVP decline a session via email link
+ *     tags: [Sessions]
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         schema: { type: integer }
+ *         required: true
+ *       - in: path
+ *         name: userId
+ *         schema: { type: string }
+ *         required: true
+ *     responses:
+ *       200: { description: Declined }
+ *       500: { description: Error updating RSVP }
+ */
+
 
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
@@ -186,8 +258,26 @@ if (process.env.NODE_ENV === "test") {
 export { transporter };
 
 
+//  test email connectivity
+router.get("/test-email", async (req, res) => {
+  try {
+    await transporter.verify();
+    
+    const testEmail = await transporter.sendMail({
+      from: process.env.SMTP_USER,
+      to: process.env.SMTP_USER, // send to yourself
+      subject: "Test Email",
+      text: "This is a test email from your application"
+    });
+    
+    res.json({ success: true, message: "Email sent successfully", info: testEmail });
+  } catch (error) {
+    console.error("Email test failed:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
-
+/** Create a session (planner) */
 /** Create a session (planner) */
 router.post("/groups/:groupId/sessions", async (req, res, next) => {
   try {
@@ -195,8 +285,7 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
     if (!user) return res.status(401).json({ error: "Unauthorized" });
 
     const group_id = req.params.groupId;
-    const { start_at, venue, topic, time_goal_minutes, content_goal } =
-      req.body || {};
+    const { start_at, venue, topic, time_goal_minutes, content_goal } = req.body || {};
 
     const isMember = await requireGroupMember(group_id, user.id);
     if (!isMember) return res.status(403).json({ error: "Not a group member" });
@@ -204,130 +293,165 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
     if (!start_at) return res.status(400).json({ error: "start_at is required" });
 
     const starts = new Date(start_at);
-    if (isNaN(starts.getTime()))
-      return res.status(400).json({ error: "Invalid start_at" });
-    if (starts < new Date())
-      return res.status(400).json({ error: "start_at cannot be in the past" });
+    if (isNaN(starts.getTime())) return res.status(400).json({ error: "Invalid start_at" });
+    if (starts < new Date()) return res.status(400).json({ error: "start_at cannot be in the past" });
 
     // Insert session
     const { data: sessionData, error } = await supabase
       .from("sessions")
-      .insert([
-        {
-          group_id,
-          creator_id: user.id,
-          start_at,
-          venue,
-          topic,
-          time_goal_minutes,
-          content_goal,
-        },
-      ])
+      .insert([{ 
+        group_id, 
+        creator_id: user.id, 
+        start_at, 
+        venue, 
+        topic, 
+        time_goal_minutes, 
+        content_goal 
+      }])
       .select("*")
       .single();
 
     if (error) throw error;
 
-    // Get group members
-    const { data: members } = await supabase
+    // Get group members (excluding creator)
+    const { data: members, error: membersError } = await supabase
       .from("group_members")
       .select("profiles(id, email, full_name)")
-      .eq("group_id", group_id);
+      .eq("group_id", group_id)
+      .neq("user_id", user.id); // Exclude creator
 
-       if (!members || members.length === 0) return res.json({ session: sessionData });
+    if (membersError) {
+      console.error("Error fetching members:", membersError);
+      // Continue without emails rather than failing completely
+      return res.json({ session: sessionData });
+    }
 
-    // Check conflicts per member
-    const conflictPromises = members
-      .filter(m => m.profiles.email && m.profiles.email !== user.email)
-      .map(async (m) => {
-        const { data: acceptedSessions } = await supabase
+    if (!members || members.length === 0) {
+      console.log("No members to email.");
+      return res.json({ session: sessionData });
+    }
+
+    console.log("Processing emails for members:", members.map(m => m.profiles.email));
+
+    // Process members with conflict detection and email sending
+    const processMember = async (member, index) => {
+      try {
+        // Add delay to avoid throttling (300ms between emails)
+        await new Promise(resolve => setTimeout(resolve, index * 300));
+        
+        const memberProfile = member.profiles;
+        
+        // Skip if no email
+        if (!memberProfile.email) {
+          console.log(`Skipping member ${memberProfile.full_name} - no email`);
+          return;
+        }
+
+        // Check for conflicts
+        const { data: acceptedSessions, error: inviteError } = await supabase
           .from("session_invites")
           .select("session_id")
-          .eq("user_id", m.profiles.id)
+          .eq("user_id", memberProfile.id)
           .eq("status", "accepted");
 
-        const sessionIds = acceptedSessions.map(s => s.session_id);
-        if (sessionIds.length === 0) return { member: m, conflict: false };
+        if (inviteError) {
+          console.error(`Error checking invites for ${memberProfile.email}:`, inviteError);
+          return;
+        }
 
-        const { data: conflicts } = await supabase
-          .from("sessions")
-          .select("id, start_at, topic")
-          .in("id", sessionIds);
+        let hasConflict = false;
+        
+        if (acceptedSessions && acceptedSessions.length > 0) {
+          const sessionIds = acceptedSessions.map(s => s.session_id);
+          
+          const { data: conflicts, error: conflictError } = await supabase
+            .from("sessions")
+            .select("id, start_at, topic")
+            .in("id", sessionIds);
 
-        const conflict = conflicts.some(c => new Date(c.start_at).getTime() === starts.getTime());
-        return { member: m, conflict };
-      });
+          if (conflictError) {
+            console.error(`Error checking conflicts for ${memberProfile.email}:`, conflictError);
+          } else if (conflicts) {
+            hasConflict = conflicts.some(c => new Date(c.start_at).getTime() === starts.getTime());
+          }
+        }
 
-    const conflictResults = await Promise.all(conflictPromises);
+        if (hasConflict) {
+          // Notify creator about conflict
+          console.log(`Conflict detected for ${memberProfile.full_name}, notifying creator`);
+          
+          const { data: creator } = await supabase
+            .from("profiles")
+            .select("email, full_name")
+            .eq("id", user.id)
+            .single();
 
-    // Send emails or notify creator
-    const emailPromises = conflictResults.map(({ member, conflict }, index) => {
-      return new Promise(async (resolve) => {
-        try {
-          if (conflict) {
-            // Notify creator
-            const { data: creator } = await supabase
-              .from("profiles")
-              .select("email, full_name")
-              .eq("id", user.id)
-              .single();
-
-            if (creator?.email) {
-              await transporter.sendMail({
-                from: process.env.SMTP_USER,
-                to: creator.email,
-                subject: `Conflict: ${member.profiles.full_name} already booked`,
-                text: `${member.profiles.full_name} has already accepted another session at ${start_at}.`,
-              });
-            }
-          } else {
-            // Send RSVP email
-            const acceptLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/accept/${member.profiles.id}`;
-            const declineLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/decline/${member.profiles.id}`;
-
-            const htmlContent = `
-              <h2>New Study Session Scheduled</h2>
-              <p><strong>Date/Time:</strong> ${start_at}</p>
-              <p><strong>Venue:</strong> ${venue}</p>
-              <p><strong>Topic:</strong> ${topic}</p>
-              <p><strong>Time goal:</strong> ${time_goal_minutes} mins</p>
-              <p><strong>Content goal:</strong> ${content_goal}</p>
-              <p>
-                <a href="${acceptLink}" style="padding:10px 20px;background:#4CAF50;color:#fff;text-decoration:none;border-radius:5px;">
-                  ✅ Accept
-                </a>
-                &nbsp;&nbsp;
-                <a href="${declineLink}" style="padding:10px 20px;background:#f44336;color:#fff;text-decoration:none;border-radius:5px;">
-                  ❌ Decline
-                </a>
-              </p>
-            `;
-
+          if (creator?.email) {
             await transporter.sendMail({
               from: process.env.SMTP_USER,
-              to: member.profiles.email,
-              subject: `New Study Session in your group`,
-              html: htmlContent,
+              to: creator.email,
+              subject: `Conflict: ${memberProfile.full_name} already booked`,
+              text: `${memberProfile.full_name} has already accepted another session at ${start_at}.`,
             });
-            // Insert pending invite
-            await supabase.from("session_invites").insert({
-              session_id: sessionData.id,
-              user_id: member.profiles.id,
-              status: "pending",
-            });
+            console.log(`Conflict email sent to creator about ${memberProfile.full_name}`);
           }
-        } catch (err) {
-          console.error(err);
-        } finally {
-          resolve(null);
+        } else {
+          // Send RSVP email to member
+          const acceptLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/accept/${memberProfile.id}`;
+          const declineLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/decline/${memberProfile.id}`;
+
+          const htmlContent = `
+            <h2>New Study Session Scheduled</h2>
+            <p><strong>Date/Time:</strong> ${start_at}</p>
+            ${venue ? `<p><strong>Venue:</strong> ${venue}</p>` : ''}
+            ${topic ? `<p><strong>Topic:</strong> ${topic}</p>` : ''}
+            ${time_goal_minutes ? `<p><strong>Time goal:</strong> ${time_goal_minutes} mins</p>` : ''}
+            ${content_goal ? `<p><strong>Content goal:</strong> ${content_goal}</p>` : ''}
+            <p>
+              <a href="${acceptLink}" style="padding:10px 20px;background:#4CAF50;color:#fff;text-decoration:none;border-radius:5px;">
+                ✅ Accept
+              </a>
+              &nbsp;&nbsp;
+              <a href="${declineLink}" style="padding:10px 20px;background:#f44336;color:#fff;text-decoration:none;border-radius:5px;">
+                ❌ Decline
+              </a>
+            </p>
+            <p><small>If the buttons don't work, copy and paste these links:<br/>
+            Accept: ${acceptLink}<br/>
+            Decline: ${declineLink}</small></p>
+          `;
+
+          await transporter.sendMail({
+            from: process.env.SMTP_USER,
+            to: memberProfile.email,
+            subject: `New Study Session in your group`,
+            html: htmlContent,
+          });
+          
+          // Insert pending invite
+          await supabase.from("session_invites").insert({
+            session_id: sessionData.id,
+            user_id: memberProfile.id,
+            status: "pending",
+          });
+          
+          console.log(`Invite email sent to ${memberProfile.email}`);
         }
-      });
-    });
+      } catch (err) {
+        console.error(`Error processing member ${member.profiles.email}:`, err);
+      }
+    };
 
-    await Promise.all(emailPromises);
+    // Process all members sequentially to avoid throttling
+    // Use Promise.allSettled to continue even if some fail
+    const emailPromises = members.map((member, index) => processMember(member, index));
+    await Promise.allSettled(emailPromises);
 
+    console.log("Session creation and email processing completed");
     res.json({ session: sessionData });
+    
   } catch (e) {
+    console.error("Error in session creation:", e);
     next(e);
   }
 });
