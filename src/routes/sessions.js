@@ -199,7 +199,6 @@
 
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
 
 const router = express.Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -234,27 +233,58 @@ if (process.env.NODE_ENV === "test") {
     sendEmail: async (to, subject, html, text) => {
       console.log("[Mock email] sendEmail called to:", to);
       return Promise.resolve({ 
-        id: "mock-email-id",
+        success: true,
         to: to,
         subject: subject 
       });
     }
   };
 } else {
-  // Production: Use Resend
-  const resend = new Resend(process.env.RESEND_API_KEY);
+  // Production: Use Mailjet
   emailService = {
     sendEmail: async (to, subject, html, text) => {
       try {
-        const result = await resend.emails.send({
-          from: 'LockedIn <onboarding@resend.dev>',
-          to: to,
-          subject: subject,
-          html: html,
-          text: text || html.replace(/<[^>]*>/g, ''),
+        // Import node-fetch for HTTP requests to Mailjet API
+        const fetch = (await import('node-fetch')).default;
+        
+        const response = await fetch('https://api.mailjet.com/v3.1/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Basic ' + Buffer.from(
+              process.env.MJ_APIKEY_PUBLIC + ':' + process.env.MJ_APIKEY_PRIVATE
+            ).toString('base64')
+          },
+          body: JSON.stringify({
+            Messages: [
+              {
+                From: {
+                  Email: "lockedin@lockedin-backsupa.onrender.com",
+                  Name: "LockedIn Study Groups"
+                },
+                To: [
+                  {
+                    Email: to,
+                    Name: to.split('@')[0]
+                  }
+                ],
+                Subject: subject,
+                HTMLPart: html,
+                TextPart: text || html.replace(/<[^>]*>/g, '')
+              }
+            ]
+          })
         });
-        console.log(`✅ Email sent to: ${to}`);
-        return result;
+
+        const result = await response.json();
+        
+        if (response.ok) {
+          console.log(`✅ Email sent to: ${to}`);
+          return result;
+        } else {
+          console.error(`❌ Mailjet API error for ${to}:`, result);
+          return { error: result.ErrorMessage || 'Mailjet API error' };
+        }
       } catch (error) {
         console.error(`❌ Failed to send email to ${to}:`, error);
         return { error: error.message };
@@ -268,34 +298,35 @@ async function sendEmailSafe(to, subject, html, text) {
   return await emailService.sendEmail(to, subject, html, text);
 }
 
-// Export for tests (if needed)
+// Export for tests
 export { emailService };
 
-// Test Resend endpoint
-router.get("/test-resend", async (req, res) => {
+// Test Mailjet endpoint
+router.get("/test-mailjet", async (req, res) => {
   try {
-    console.log('Testing Resend...');
+    console.log('Testing Mailjet with any email...');
     
     const result = await sendEmailSafe(
-      '2542915@students.wits.ac.za',
-      'Test from Resend - Should Work!',
-      '<h1>Resend Test</h1><p>This should work immediately on Render!</p>'
+      'njam.arshia@gmail.com', // Test with ANY email - no verification needed!
+      'Mailjet Test - Should Work With Any Email!',
+      '<h1>Mailjet Test</h1><p>This should work immediately with any email address!</p>'
     );
     
-    console.log('Resend test result:', result);
+    console.log('Mailjet test result:', result);
     res.json({ 
       success: true, 
-      message: 'Resend test completed!',
+      message: 'Mailjet test completed! Check njam.arshia@gmail.com',
       result 
     });
   } catch (error) {
-    console.error('Resend test failed:', error);
+    console.error('Mailjet test failed:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message
     });
   }
 });
+
 
 /** Create a session (planner) - Updated for Resend but test-compatible */
 router.post("/groups/:groupId/sessions", async (req, res, next) => {
