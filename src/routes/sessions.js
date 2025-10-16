@@ -271,7 +271,7 @@ if (process.env.NODE_ENV === "test") {
           : process.env.EMAILJS_INVITATION_TEMPLATE_ID;
         
         const templateParams = {
-          to_email: to,
+          email: to,
           subject: subject,
           name: templateData.recipient_name || to.split('@')[0],
           session_time: templateData.session_time || '',
@@ -340,18 +340,29 @@ router.get("/emailJS-test", async (req, res) => {
     
     console.log(`🧪 Testing EmailJS to: ${testEmail}`);
     
-    // Simple test without complex logic
+    // Use the exact parameter names that your EmailJS template expects
     const templateParams = {
-      to_email: testEmail,
+      email: testEmail,
       subject: 'Simple EmailJS Test',
       name: "Test User",
       session_time: new Date().toLocaleString(),
       topic: "Test Session",
-      venue: "Test Venue",
+      venue: "Test Venue", 
       organizer: "Test Organizer",
       action_url: "https://www.google.com",
-      support_url: "https://www.wits.ac.za"
+      support_url: "https://www.wits.ac.za",
+      // Add these common required fields that EmailJS might expect:
+      email: testEmail, // Some templates use 'email' instead of 'to_email'
+      message: "This is a test message", // Fallback content
+      reply_to: testEmail // Sometimes required
     };
+
+    console.log('📤 Sending to EmailJS with params:', {
+      service_id: process.env.EMAILJS_SERVICE_ID?.substring(0, 10) + '...',
+      template_id: process.env.EMAILJS_INVITATION_TEMPLATE_ID?.substring(0, 10) + '...',
+      user_id: process.env.EMAILJS_USER_ID?.substring(0, 10) + '...',
+      to_email: testEmail
+    });
 
     const emailjsResponse = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
       method: 'POST',
@@ -364,27 +375,34 @@ router.get("/emailJS-test", async (req, res) => {
         service_id: process.env.EMAILJS_SERVICE_ID,
         template_id: process.env.EMAILJS_INVITATION_TEMPLATE_ID,
         user_id: process.env.EMAILJS_USER_ID,
-        template_params: templateParams
+        template_params: templateParams,
+        accessToken: process.env.EMAILJS_USER_ID // Sometimes needed
       })
     });
 
     if (!emailjsResponse.ok) {
       const errorText = await emailjsResponse.text();
+      console.error('❌ EmailJS API error details:', errorText);
       throw new Error(`EmailJS API error: ${emailjsResponse.status} - ${errorText}`);
     }
+
+    const result = await emailjsResponse.json();
+    console.log('✅ EmailJS response:', result);
 
     res.json({ 
       success: true, 
       message: `Test email sent to ${testEmail}`,
       status: emailjsResponse.status,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      response: result
     });
     
   } catch (error) {
     console.error('❌ EmailJS test failed:', error);
     res.status(500).json({ 
       success: false, 
-      error: error.message
+      error: error.message,
+      note: 'Check if template parameters match your EmailJS template variables'
     });
   }
 });
