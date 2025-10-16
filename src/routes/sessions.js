@@ -609,7 +609,10 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
         }
 
         if (hasConflict) {
-          console.log(`Conflict detected for ${memberProfile.full_name}`);
+          console.log(`🚨 CONFLICT DETECTED:`);
+          console.log(`   - Session Creator: ${user.id} (${creator?.full_name})`);
+          console.log(`   - Member with Conflict: ${memberProfile.id} (${memberProfile.full_name})`);
+          console.log(`   - Sending conflict email to: ${creator?.email}`);
           
           const { data: creator } = await supabase
             .from("profiles")
@@ -618,20 +621,27 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
             .single();
 
           if (creator?.email) {
+            console.log(`📧 Sending conflict alert to creator: ${creator.email}`);
+            
             await sendEmailSafe(
-              creator.email,
+              creator.email,  // This goes to session creator
               `⚠️ Scheduling Conflict Alert`,
-              '', // HTML handled by template
+              '', 
               `Conflict: ${memberProfile.full_name} has already accepted another session at ${start_at}.`,
               'conflict',
               {
-                recipient_name: creator.full_name,
+                recipient_name: creator.full_name,  // Creator's name
                 session_time: start_at,
                 conflict_message: `${memberProfile.full_name} has already accepted another session at this time.`,
-                student_name: memberProfile.full_name
+                student_name: memberProfile.full_name  // Member who has conflict
               }
             );
+            
+            console.log(`✅ Conflict email sent to creator: ${creator.email}`);
+          } else {
+            console.log(`❌ Could not find creator email for user: ${user.id}`);
           }
+        
         } else {
           // Send RSVP email using EmailJS invitation template
           const acceptLink = `https://${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/accept/${memberProfile.id}`;
