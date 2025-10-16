@@ -199,7 +199,6 @@
 
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
 
 const router = express.Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -231,98 +230,74 @@ let emailService;
 if (process.env.NODE_ENV === "test") {
   console.log("Test environment: Email functionality disabled");
   emailService = {
-    sendEmail: async (to, subject, html, text) => {
-      console.log("[Mock email] sendEmail called to:", to);
+    sendEmail: async (to, subject, html, text, emailType = 'invitation', templateData = {}) => {
+      console.log("[Mock email] sendEmail called to:", to, "Type:", emailType);
       return Promise.resolve({ 
         success: true,
         to: to,
-        subject: subject 
+        subject: subject,
+        emailType: emailType
       });
     }
   };
 } else {
-  // SIMPLE FIX: Use fetch API instead of Mailersend SDK to avoid import issues
-  const resend = new Resend(process.env.RESEND_API_KEY);
-
+  // Production: Use EmailJS with two templates
   emailService = {
-    sendEmail: async (to, subject, html, text) => {
+    sendEmail: async (to, subject, html, text, emailType = 'invitation', templateData = {}) => {
       try {
-        console.log(`📧 Attempting to send email to: ${to}`);
+        console.log(`📧 Sending ${emailType} email to: ${to}`);
         
-        // Use Mailersend REST API directly with fetch - no SDK issues
-        const mailersendResponse = await fetch('https://api.mailersend.com/v1/email', {
+        // Choose template based on email type
+        const templateId = emailType === 'conflict' 
+          ? process.env.EMAILJS_CONFLICT_TEMPLATE_ID 
+          : process.env.EMAILJS_INVITATION_TEMPLATE_ID;
+        
+        const templateParams = {
+          to_email: to,
+          subject: subject,
+          name: templateData.recipient_name || to.split('@')[0],
+          session_time: templateData.session_time || '',
+          venue: templateData.venue || '',
+          topic: templateData.topic || 'Group Study Session',
+          time_goal: templateData.time_goal || '',
+          content_goal: templateData.content_goal || '',
+          organizer: templateData.organizer || 'A group member',
+          action_url: templateData.accept_link || '',
+          support_url: templateData.decline_link || '',
+          conflict_message: templateData.conflict_message || '',
+          student_name: templateData.student_name || ''
+        };
+
+        const emailjsResponse = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${process.env.MAILERSEND_API_KEY}`,
             'Content-Type': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest'
           },
           body: JSON.stringify({
-            from: {
-              email: process.env.MAILERSEND_FROM_EMAIL || "noreply@test-ywj2lpm1o71g7oqz.mlsender.net",
-              name: "LockedIn Wits"
-            },
-            to: [
-              {
-                email: to,
-                name: to.split('@')[0]
-              }
-            ],
-            subject: subject,
-            html: html,
-            text: text || html.replace(/<[^>]*>/g, '')
+            service_id: process.env.EMAILJS_SERVICE_ID,
+            template_id: templateId,
+            user_id: process.env.EMAILJS_USER_ID,
+            template_params: templateParams
           })
         });
 
-        if (!mailersendResponse.ok) {
-          const errorText = await mailersendResponse.text();
-          throw new Error(`Mailersend API error: ${mailersendResponse.status} - ${errorText}`);
+        if (!emailjsResponse.ok) {
+          const errorText = await emailjsResponse.text();
+          throw new Error(`EmailJS API error: ${emailjsResponse.status} - ${errorText}`);
         }
 
-        const result = await mailersendResponse.json();
-        
-        console.log(`✅ Mailersend email sent successfully to: ${to}`);
+        console.log(`✅ ${emailType} email sent successfully to: ${to}`);
         return { 
           success: true, 
-          service: 'mailersend',
-          response: result 
+          service: 'emailjs',
+          emailType: emailType
         };
         
-      } catch (mailersendError) {
-        console.error(`❌ Mailersend failed for ${to}:`, mailersendError.message);
-        
-        // Fallback to Resend ONLY for your student email
-        if (to.endsWith('@students.wits.ac.za')) {
-          try {
-            console.log(`🔄 Falling back to Resend for student email: ${to}`);
-            
-            const resendResponse = await resend.emails.send({
-              from: 'LockedIn <onboarding@resend.dev>',
-              to: to,
-              subject: subject,
-              html: html,
-              text: text || html.replace(/<[^>]*>/g, ''),
-            });
-
-            console.log(`✅ Resend fallback successful for: ${to}`);
-            return { 
-              success: true, 
-              service: 'resend',
-              response: resendResponse 
-            };
-            
-          } catch (resendError) {
-            console.error(`❌ Resend fallback also failed for ${to}:`, resendError.message);
-            return { 
-              error: `Both services failed: ${mailersendError.message}, ${resendError.message}` 
-            };
-          }
-        }
-        
-        // For non-student emails, only Mailersend is available
+      } catch (error) {
+        console.error(`❌ Failed to send ${emailType} email to ${to}:`, error.message);
         return { 
-          error: `Mailersend failed: ${mailersendError.message}`,
-          note: 'Resend only works for student emails'
+          error: `EmailJS failed: ${error.message}`,
+          emailType: emailType
         };
       }
     }
@@ -330,125 +305,147 @@ if (process.env.NODE_ENV === "test") {
 }
 
 // Safe email function that works in both test and production
-async function sendEmailSafe(to, subject, html, text) {
-  return await emailService.sendEmail(to, subject, html, text);
+async function sendEmailSafe(to, subject, html, text, emailType = 'invitation', templateData = {}) {
+  return await emailService.sendEmail(to, subject, html, text, emailType, templateData);
 }
 
 // Export for tests
 export { emailService };
 
-// 🆕 SIMPLE TEST: Using fetch API directly
-router.get("/testmailersend", async (req, res) => {
+// 🆕 IMMEDIATE TEST ROUTE: EmailJS Test
+router.get("/emailJS-test", async (req, res) => {
   try {
     const testEmail = req.query.email || 'njam.arshia@gmail.com';
+    const testType = req.query.type || 'invitation'; // 'invitation' or 'conflict'
     
-    console.log(`🧪 Testing Mailersend with email: ${testEmail}`);
+    console.log(`🧪 Testing EmailJS with ${testType} template to: ${testEmail}`);
     
-    // Test using the same method as our email service
+    let templateData;
+    
+    if (testType === 'conflict') {
+      // Test conflict template
+      templateData = {
+        recipient_name: "Test Creator",
+        session_time: new Date().toLocaleString(),
+        conflict_message: "Test Student has already accepted another session at this time.",
+        student_name: "Test Student"
+      };
+    } else {
+      // Test invitation template
+      templateData = {
+        recipient_name: "Test User", 
+        session_time: new Date().toLocaleString(),
+        venue: "Wits Library",
+        topic: "Computer Science Study Group",
+        time_goal: "120",
+        content_goal: "Complete Chapter 5 exercises",
+        organizer: "Test Organizer",
+        accept_link: "https://courses.ms.wits.ac.za/accept-test",
+        decline_link: "https://courses.ms.wits.ac.za/decline-test"
+      };
+    }
+    
     const result = await sendEmailSafe(
       testEmail,
-      'Mailersend Test - Session Booking System',
-      `<h1>🚀 Mailersend Test Successful!</h1>
-       <p>This email was sent via <strong>Mailersend API</strong> and should work with ANY email address!</p>
-       <p><strong>Test email:</strong> ${testEmail}</p>
-       <p><strong>Time:</strong> ${new Date().toISOString()}</p>
-       <p>If you received this, your session booking emails will work perfectly! 🎉</p>
-       <hr>
-       <p><em>LockedIn - Wits Study Session System</em></p>`,
-      `Mailersend Test Successful! This email was sent via Mailersend to ${testEmail}. Time: ${new Date().toISOString()}. If you received this, your session booking emails will work perfectly!`
+      testType === 'conflict' ? '⚠️ Test Conflict Alert' : '📚 Test Session Invitation',
+      '', // HTML handled by template
+      `Test ${testType} email`, // Plain text fallback
+      testType,
+      templateData
     );
     
     res.json({ 
       success: true, 
-      message: `Mailersend test completed for ${testEmail}`,
+      message: `EmailJS ${testType} test completed for ${testEmail}`,
       testDetails: {
         email: testEmail,
+        type: testType,
         timestamp: new Date().toISOString(),
-        serviceUsed: result.service || 'unknown',
-        environment: process.env.NODE_ENV || 'development'
+        environment: process.env.NODE_ENV || 'development',
+        templateUsed: testType === 'conflict' ? 'Conflict Template' : 'Invitation Template'
       },
       result
     });
     
   } catch (error) {
-    console.error('❌ Mailersend test failed:', error);
+    console.error('❌ EmailJS test failed:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message,
-      note: 'Check your MAILERSEND_API_KEY environment variable'
+      note: 'Check your EmailJS environment variables: SERVICE_ID, TEMPLATE_IDS, USER_ID'
     });
   }
 });
 
-// 🆕 ULTRA-SIMPLE TEST: Direct fetch call
-router.get("/test-mailersend-simple", async (req, res) => {
+// 🆕 Test both templates at once
+router.get("/emailJS-test-both", async (req, res) => {
   try {
     const testEmail = req.query.email || 'njam.arshia@gmail.com';
     
-    console.log(`🧪 ULTRA-SIMPLE Testing Mailersend to: ${testEmail}`);
+    console.log(`🧪 Testing both EmailJS templates to: ${testEmail}`);
     
-    const response = await fetch('https://api.mailersend.com/v1/email', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.MAILERSEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: {
-          email: 'noreply@test-ywj2lpm1o71g7oqz.mlsender.net',
-          name: 'LockedIn Wits'
-        },
-        to: [
-          {
-            email: testEmail,
-            name: testEmail.split('@')[0]
-          }
-        ],
-        subject: 'Ultra Simple Mailersend Test',
-        html: `
-          <h1>✅ Ultra Simple Test Working!</h1>
-          <p>This uses direct fetch API - no SDK issues!</p>
-          <p><strong>To:</strong> ${testEmail}</p>
-          <p><strong>From:</strong> test-ywj2lpm1o71g7oqz.mlsender.net</p>
-          <p><strong>Time:</strong> ${new Date().toISOString()}</p>
-          <p>Your emails should work now! 🎉</p>
-        `,
-        text: `Ultra Simple Mailersend Test - Working! Sent to ${testEmail}`
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-
-    const result = await response.json();
-
+    const results = [];
+    
+    // Test invitation template
+    const invitationResult = await sendEmailSafe(
+      testEmail,
+      '📚 Test Session Invitation',
+      '',
+      'Test invitation email',
+      'invitation',
+      {
+        recipient_name: "Test User",
+        session_time: new Date().toLocaleString(),
+        venue: "Wits Library",
+        topic: "Computer Science Study Group", 
+        time_goal: "120",
+        content_goal: "Complete Chapter 5",
+        organizer: "Test Organizer",
+        accept_link: "https://courses.ms.wits.ac.za/accept-test",
+        decline_link: "https://courses.ms.wits.ac.za/decline-test"
+      }
+    );
+    results.push({ type: 'invitation', result: invitationResult });
+    
+    // Wait 2 seconds between emails
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Test conflict template  
+    const conflictResult = await sendEmailSafe(
+      testEmail,
+      '⚠️ Test Conflict Alert',
+      '',
+      'Test conflict email', 
+      'conflict',
+      {
+        recipient_name: "Test Creator",
+        session_time: new Date().toLocaleString(),
+        conflict_message: "Test Student has a scheduling conflict.",
+        student_name: "Test Student"
+      }
+    );
+    results.push({ type: 'conflict', result: conflictResult });
+    
     res.json({ 
       success: true, 
-      message: `✅ Ultra-simple Mailersend test successful!`,
-      details: {
-        email: testEmail,
-        domain: 'test-ywj2lpm1o71g7oqz.mlsender.net',
-        method: 'direct fetch API',
-        timestamp: new Date().toISOString(),
-        status: response.status
-      },
-      result
+      message: `Both EmailJS templates tested for ${testEmail}`,
+      results,
+      summary: {
+        invitation: invitationResult.success ? '✅ Success' : '❌ Failed',
+        conflict: conflictResult.success ? '✅ Success' : '❌ Failed'
+      }
     });
     
   } catch (error) {
-    console.error('❌ Ultra-simple test failed:', error);
+    console.error('❌ EmailJS both-templates test failed:', error);
     res.status(500).json({ 
       success: false, 
-      error: error.message,
-      note: 'Check MAILERSEND_API_KEY format: should start with mlsn.' 
+      error: error.message 
     });
   }
 });
 
-
-/** Create a session (planner) - Updated for Mailersend but test-compatible */
+/** Create a session (planner) - Updated for EmailJS templates */
 router.post("/groups/:groupId/sessions", async (req, res, next) => {
   try {
     const user = await getUser(req);
@@ -545,44 +542,40 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
           if (creator?.email) {
             await sendEmailSafe(
               creator.email,
-              `Conflict: ${memberProfile.full_name} already booked`,
-              `<p><strong>Conflict Alert</strong></p>
-               <p>${memberProfile.full_name} has already accepted another session at ${start_at}.</p>
-               <p>You may want to reschedule your session.</p>`
+              `⚠️ Scheduling Conflict Alert`,
+              '', // HTML handled by template
+              `Conflict: ${memberProfile.full_name} has already accepted another session at ${start_at}.`,
+              'conflict',
+              {
+                recipient_name: creator.full_name,
+                session_time: start_at,
+                conflict_message: `${memberProfile.full_name} has already accepted another session at this time.`,
+                student_name: memberProfile.full_name
+              }
             );
           }
         } else {
-          // Send RSVP email using Mailersend
-          const acceptLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/accept/${memberProfile.id}`;
-          const declineLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/decline/${memberProfile.id}`;
-
-          const htmlContent = `
-            <h2>📚 New Study Session Scheduled</h2>
-            <p><strong>Date/Time:</strong> ${start_at}</p>
-            ${venue ? `<p><strong>Venue:</strong> ${venue}</p>` : ''}
-            ${topic ? `<p><strong>Topic:</strong> ${topic}</p>` : ''}
-            ${time_goal_minutes ? `<p><strong>Time goal:</strong> ${time_goal_minutes} mins</p>` : ''}
-            ${content_goal ? `<p><strong>Content goal:</strong> ${content_goal}</p>` : ''}
-            <p>Please respond to this invitation:</p>
-            <p>
-              <a href="${acceptLink}" style="padding:10px 20px;background:#4CAF50;color:#fff;text-decoration:none;border-radius:5px;margin:5px;">
-                ✅ Accept
-              </a>
-              <a href="${declineLink}" style="padding:10px 20px;background:#f44336;color:#fff;text-decoration:none;border-radius:5px;margin:5px;">
-                ❌ Decline
-              </a>
-            </p>
-            <hr>
-            <p><em>LockedIn - Wits Study Session System</em></p>
-          `;
-
-          const textContent = `New Study Session: ${start_at}${venue ? ` at ${venue}` : ''}${topic ? ` - ${topic}` : ''}. Accept: ${acceptLink} or Decline: ${declineLink}`;
+          // Send RSVP email using EmailJS invitation template
+          const acceptLink = `https://${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/accept/${memberProfile.id}`;
+          const declineLink = `https://${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/decline/${memberProfile.id}`;
 
           await sendEmailSafe(
             memberProfile.email,
-            `📅 New Study Session in your group`,
-            htmlContent,
-            textContent
+            `📚 Study Session: ${topic || 'Group Study'}`,
+            '', // HTML handled by template
+            `You've been invited to a study session on ${start_at}. Accept: ${acceptLink} or Decline: ${declineLink}`,
+            'invitation',
+            {
+              recipient_name: memberProfile.full_name,
+              session_time: start_at,
+              venue: venue || '',
+              topic: topic || 'Group Study Session',
+              time_goal: time_goal_minutes || '',
+              content_goal: content_goal || '',
+              organizer: user.user_metadata?.full_name || 'A group member',
+              accept_link: acceptLink,
+              decline_link: declineLink
+            }
           );
           
           // Create invite record
@@ -685,10 +678,16 @@ router.post("/groups/:groupId/sessions/:sessionId/respond", async (req, res, nex
         if (creator?.email) {
           await sendEmailSafe(
             creator.email,
-            `Conflict: ${prof?.full_name} already booked`,
-            `<p><strong>Conflict Alert</strong></p>
-             <p>${prof?.full_name} has already accepted another session at ${session.start_at}.</p>
-             <p>They cannot accept your session due to this scheduling conflict.</p>`
+            `⚠️ Scheduling Conflict Alert`,
+            '', // HTML handled by template
+            `Conflict: ${prof?.full_name} cannot accept your session due to scheduling conflict.`,
+            'conflict',
+            {
+              recipient_name: creator.full_name,
+              session_time: session.start_at,
+              conflict_message: `${prof?.full_name} cannot accept your session due to existing commitment.`,
+              student_name: prof?.full_name || 'A student'
+            }
           );
         }
 
@@ -713,6 +712,7 @@ router.post("/groups/:groupId/sessions/:sessionId/respond", async (req, res, nex
     next(e);
   }
 });
+
 
 
 
