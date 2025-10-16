@@ -241,14 +241,7 @@ if (process.env.NODE_ENV === "test") {
     }
   };
 } else {
-  // Production: Use Mailersend as primary, Resend as fallback
-  const { MailerSend } = await import('mailersend');
-  
-  const mailersend = new MailerSend({
-    api_key: process.env.MAILERSEND_API_KEY,
-  });
-
-  // Keep Resend for backward compatibility
+  // SIMPLE FIX: Use fetch API instead of Mailersend SDK to avoid import issues
   const resend = new Resend(process.env.RESEND_API_KEY);
 
   emailService = {
@@ -256,29 +249,43 @@ if (process.env.NODE_ENV === "test") {
       try {
         console.log(`📧 Attempting to send email to: ${to}`);
         
-        // Try Mailersend first (works with ALL emails)
-        // ✅ FIXED: Use .emails.send() instead of .send()
-        const mailersendResponse = await mailersend.emails.send({
-          from: {
-            email: process.env.MAILERSEND_FROM_EMAIL || "noreply@test-ywj2lpm1o71g7oqz.mlsender.net",
-            name: "LockedIn Wits"
+        // Use Mailersend REST API directly with fetch - no SDK issues
+        const mailersendResponse = await fetch('https://api.mailersend.com/v1/email', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.MAILERSEND_API_KEY}`,
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
           },
-          to: [
-            {
-              email: to,
-              name: to.split('@')[0] // Use username as name
-            }
-          ],
-          subject: subject,
-          html: html,
-          text: text || html.replace(/<[^>]*>/g, ''),
+          body: JSON.stringify({
+            from: {
+              email: process.env.MAILERSEND_FROM_EMAIL || "noreply@test-ywj2lpm1o71g7oqz.mlsender.net",
+              name: "LockedIn Wits"
+            },
+            to: [
+              {
+                email: to,
+                name: to.split('@')[0]
+              }
+            ],
+            subject: subject,
+            html: html,
+            text: text || html.replace(/<[^>]*>/g, '')
+          })
         });
 
+        if (!mailersendResponse.ok) {
+          const errorText = await mailersendResponse.text();
+          throw new Error(`Mailersend API error: ${mailersendResponse.status} - ${errorText}`);
+        }
+
+        const result = await mailersendResponse.json();
+        
         console.log(`✅ Mailersend email sent successfully to: ${to}`);
         return { 
           success: true, 
           service: 'mailersend',
-          response: mailersendResponse 
+          response: result 
         };
         
       } catch (mailersendError) {
@@ -330,18 +337,19 @@ async function sendEmailSafe(to, subject, html, text) {
 // Export for tests
 export { emailService };
 
-// 🆕 UPDATED: Test Mailersend endpoint with fixed method
+// 🆕 SIMPLE TEST: Using fetch API directly
 router.get("/testmailersend", async (req, res) => {
   try {
     const testEmail = req.query.email || 'njam.arshia@gmail.com';
     
     console.log(`🧪 Testing Mailersend with email: ${testEmail}`);
     
+    // Test using the same method as our email service
     const result = await sendEmailSafe(
       testEmail,
       'Mailersend Test - Session Booking System',
       `<h1>🚀 Mailersend Test Successful!</h1>
-       <p>This email was sent via <strong>Mailersend</strong> and should work with ANY email address!</p>
+       <p>This email was sent via <strong>Mailersend API</strong> and should work with ANY email address!</p>
        <p><strong>Test email:</strong> ${testEmail}</p>
        <p><strong>Time:</strong> ${new Date().toISOString()}</p>
        <p>If you received this, your session booking emails will work perfectly! 🎉</p>
@@ -356,7 +364,7 @@ router.get("/testmailersend", async (req, res) => {
       testDetails: {
         email: testEmail,
         timestamp: new Date().toISOString(),
-        serviceUsed: result.service || 'mock',
+        serviceUsed: result.service || 'unknown',
         environment: process.env.NODE_ENV || 'development'
       },
       result
@@ -372,64 +380,73 @@ router.get("/testmailersend", async (req, res) => {
   }
 });
 
-// 🆕 UPDATED: Quick test with direct Mailersend call
-router.get("/test-mailersend-direct", async (req, res) => {
+// 🆕 ULTRA-SIMPLE TEST: Direct fetch call
+router.get("/test-mailersend-simple", async (req, res) => {
   try {
-    const { MailerSend } = await import('mailersend');
-    
-    const mailersend = new MailerSend({
-      api_key: process.env.MAILERSEND_API_KEY,
-    });
-
     const testEmail = req.query.email || 'njam.arshia@gmail.com';
     
-    console.log(`🧪 DIRECT Testing Mailersend to: ${testEmail}`);
+    console.log(`🧪 ULTRA-SIMPLE Testing Mailersend to: ${testEmail}`);
     
-    // ✅ CORRECT METHOD: .emails.send()
-    const response = await mailersend.emails.send({
-      from: {
-        email: 'noreply@test-ywj2lpm1o71g7oqz.mlsender.net',
-        name: "LockedIn Wits"
+    const response = await fetch('https://api.mailersend.com/v1/email', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.MAILERSEND_API_KEY}`,
+        'Content-Type': 'application/json',
       },
-      to: [
-        {
-          email: testEmail,
-          name: testEmail.split('@')[0]
-        }
-      ],
-      subject: 'Direct Mailersend Test - FIXED',
-      html: `
-        <h1>✅ Mailersend Method Fixed!</h1>
-        <p>This uses the correct <code>.emails.send()</code> method!</p>
-        <p><strong>To:</strong> ${testEmail}</p>
-        <p><strong>From:</strong> test-ywj2lpm1o71g7oqz.mlsender.net</p>
-        <p><strong>Time:</strong> ${new Date().toISOString()}</p>
-        <p>Your session booking system should now work! 🎉</p>
-      `,
-      text: `Direct Mailersend Test - Fixed method! Sent to ${testEmail} at ${new Date().toISOString()}`
+      body: JSON.stringify({
+        from: {
+          email: 'noreply@test-ywj2lpm1o71g7oqz.mlsender.net',
+          name: 'LockedIn Wits'
+        },
+        to: [
+          {
+            email: testEmail,
+            name: testEmail.split('@')[0]
+          }
+        ],
+        subject: 'Ultra Simple Mailersend Test',
+        html: `
+          <h1>✅ Ultra Simple Test Working!</h1>
+          <p>This uses direct fetch API - no SDK issues!</p>
+          <p><strong>To:</strong> ${testEmail}</p>
+          <p><strong>From:</strong> test-ywj2lpm1o71g7oqz.mlsender.net</p>
+          <p><strong>Time:</strong> ${new Date().toISOString()}</p>
+          <p>Your emails should work now! 🎉</p>
+        `,
+        text: `Ultra Simple Mailersend Test - Working! Sent to ${testEmail}`
+      })
     });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    const result = await response.json();
 
     res.json({ 
       success: true, 
-      message: `✅ Direct Mailersend test successful!`,
+      message: `✅ Ultra-simple Mailersend test successful!`,
       details: {
         email: testEmail,
         domain: 'test-ywj2lpm1o71g7oqz.mlsender.net',
-        method: 'mailersend.emails.send()',
-        timestamp: new Date().toISOString()
+        method: 'direct fetch API',
+        timestamp: new Date().toISOString(),
+        status: response.status
       },
-      response
+      result
     });
     
   } catch (error) {
-    console.error('❌ Direct Mailersend test failed:', error);
+    console.error('❌ Ultra-simple test failed:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message,
-      note: 'Make sure MAILERSEND_API_KEY is set correctly'
+      note: 'Check MAILERSEND_API_KEY format: should start with mlsn.' 
     });
   }
 });
+
 
 /** Create a session (planner) - Updated for Mailersend but test-compatible */
 router.post("/groups/:groupId/sessions", async (req, res, next) => {
