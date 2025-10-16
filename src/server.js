@@ -14,6 +14,7 @@ import groupRoutes from "./routes/groups.js";
 import sessionsRoutes from "./routes/sessions.js";
 import progressRoutes from "./routes/progress.js";
 import assessmentsRoutes from "./routes/assessments.js";
+import emailRoutes from "./routes/email.js";
 
 
 const app = express();
@@ -53,7 +54,8 @@ app.use("/api", profileRoutes);       // -> /api/profile, /api/friends
 app.use("/api", groupRoutes);         // -> /api/groups/*, /api/group-invitations/*
 app.use("/api", sessionsRoutes);      // -> /api/groups/:groupId/sessions*, /api/groups/:groupId/messages*
 app.use("/api", progressRoutes);      // -> /api/progress
-app.use("/api", assessmentsRoutes);      
+app.use("/api", assessmentsRoutes);
+app.use("/api/email", emailRoutes);      
      
 
 console.log("Routes loaded successfully!");
