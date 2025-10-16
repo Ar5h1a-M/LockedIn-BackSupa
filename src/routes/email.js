@@ -1,4 +1,4 @@
-// src\routes\email.js
+// src/routes/email.js
 import express from "express";
 import fetch from 'node-fetch';
 
@@ -81,7 +81,7 @@ if (process.env.NODE_ENV === "test") {
         success: true,
         to: to,
         subject: subject,
-        service: "emailjs", // Add this line
+        service: "emailjs",
         message: "Email sent successfully (mock)"
       });
     }
@@ -117,10 +117,13 @@ if (process.env.NODE_ENV === "test") {
 
         console.log(`📤 Sending email using invitation template`);
 
+        // FIX: Add proper headers to bypass browser-only restriction
         const emailjsResponse = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Origin': 'https://lockedin-wits.vercel.app',
           },
           body: JSON.stringify({
             service_id: process.env.EMAILJS_SERVICE_ID,
@@ -301,6 +304,77 @@ router.post("/send", async (req, res) => {
 
 /**
  * @openapi
+ * /api/email/test:
+ *   post:
+ *     summary: Test email sending functionality
+ *     description: Send a test email to verify the service is working
+ *     tags: [Email]
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               to:
+ *                 type: string
+ *                 format: email
+ *                 example: "test@example.com"
+ *     responses:
+ *       200:
+ *         description: Test email sent successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/EmailResponse'
+ *       500:
+ *         description: Failed to send test email
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post("/test", async (req, res) => {
+  try {
+    const testEmail = req.body.to || 'njam.arshia@gmail.com';
+    
+    const result = await sendEmailSafe(
+      testEmail,
+      'Test Email from LockedIn Public API',
+      'This is a test email sent through the public API endpoint.',
+      'This is a test email sent through the public API endpoint.',
+      {
+        recipient_name: "Test User",
+        from_name: "LockedIn API",
+        message: "This email confirms that the public email API is working correctly. The message content appears in the 'content_goal' section of the invitation template."
+      }
+    );
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: "Test email sent successfully",
+        to: testEmail,
+        note: "Uses invitation template layout"
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error || "Failed to send test email"
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Test email failed:', error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error while sending test email"
+    });
+  }
+});
+
+/**
+ * @openapi
  * /api/email/emailJS-test:
  *   get:
  *     summary: Test EmailJS integration with invitation template
@@ -373,11 +447,13 @@ router.get("/emailJS-test", async (req, res) => {
 
     console.log(`📤 Sending ${testType} test email with invitation template`);
 
-    // Use the same fetch logic as your main email service
+    // FIX: Add proper headers to bypass browser-only restriction
     const emailjsResponse = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Origin': 'https://lockedin-wits.vercel.app',
       },
       body: JSON.stringify({
         service_id: process.env.EMAILJS_SERVICE_ID,
@@ -424,4 +500,5 @@ router.get("/emailJS-test", async (req, res) => {
     });
   }
 });
+
 export default router;
