@@ -612,13 +612,15 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
           console.log(`🚨 CONFLICT DETECTED:`);
           console.log(`   - Session Creator: ${user.id} (${creator?.full_name})`);
           console.log(`   - Member with Conflict: ${memberProfile.id} (${memberProfile.full_name})`);
-          console.log(`   - Sending conflict email to: ${creator?.email}`);
+          
           
           const { data: creator } = await supabase
             .from("profiles")
             .select("email, full_name")
             .eq("id", user.id)
             .single();
+
+            console.log(`   - Session Creator: ${creator?.full_name} (${creator?.email})`);
 
           if (creator?.email) {
             console.log(`📧 Sending conflict alert to creator: ${creator.email}`);
