@@ -225,19 +225,6 @@ async function requireGroupMember(group_id, user_id) {
   return !!data;
 }
 
-// Resend setup with domain rotation
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-// Multiple Resend domains to rotate through
-const RESEND_DOMAINS = [
-  'onboarding@resend.dev',
-  'notifications@resend.dev', 
-  'hello@resend.dev',
-  'noreply@resend.dev'
-];
-
-let currentDomainIndex = 0;
-
 // Email service setup with test preservation
 let emailService;
 
@@ -254,50 +241,81 @@ if (process.env.NODE_ENV === "test") {
     }
   };
 } else {
-  // Production: Use Resend with domain rotation
+  // Production: Use Mailersend as primary, Resend as fallback
+  const { MailerSend } = await import('mailersend');
+  
+  const mailersend = new MailerSend({
+    api_key: process.env.MAILERSEND_API_KEY,
+  });
+
+  // Keep Resend for backward compatibility
+  const resend = new Resend(process.env.RESEND_API_KEY);
+
   emailService = {
     sendEmail: async (to, subject, html, text) => {
-      const fromEmail = `LockedIn <${RESEND_DOMAINS[currentDomainIndex]}>`;
-      
       try {
-        console.log(`Attempting to send email to: ${to} from: ${fromEmail}`);
+        console.log(`📧 Attempting to send email to: ${to}`);
         
-        const result = await resend.emails.send({
-          from: fromEmail,
-          to: to,
+        // Try Mailersend first (works with ALL emails)
+        const mailersendResponse = await mailersend.send({
+          from: {
+            email: process.env.MAILERSEND_FROM_EMAIL || "noreply@trial-xyz.mlsender.net",
+            name: "LockedIn Wits"
+          },
+          to: [
+            {
+              email: to,
+              name: to.split('@')[0] // Use username as name
+            }
+          ],
           subject: subject,
           html: html,
           text: text || html.replace(/<[^>]*>/g, ''),
         });
+
+        console.log(`✅ Mailersend email sent successfully to: ${to}`);
+        return { 
+          success: true, 
+          service: 'mailersend',
+          response: mailersendResponse 
+        };
         
-        console.log(`✅ Email sent successfully to: ${to}`);
+      } catch (mailersendError) {
+        console.error(`❌ Mailersend failed for ${to}:`, mailersendError.message);
         
-        // Rotate to next domain for next email
-        currentDomainIndex = (currentDomainIndex + 1) % RESEND_DOMAINS.length;
-        return result;
-        
-      } catch (error) {
-        console.error(`❌ Failed to send email to ${to} from ${fromEmail}:`, error.message);
-        
-        // Check if it's a verification/authorization issue
-        if (error.message.includes('not authorized') || 
-            error.message.includes('verification') ||
-            error.message.includes('domain')) {
-          
-          console.log(`Domain ${RESEND_DOMAINS[currentDomainIndex]} has issues, rotating to next domain...`);
-          
-          // Rotate to next domain
-          currentDomainIndex = (currentDomainIndex + 1) % RESEND_DOMAINS.length;
-          
-          // Don't retry indefinitely for the same email to avoid infinite loops
-          // Just log and move on - next email will use different domain
-          return { 
-            error: `Temporary domain issue. Next emails will use different domain.`,
-            attemptedDomain: RESEND_DOMAINS[(currentDomainIndex - 1 + RESEND_DOMAINS.length) % RESEND_DOMAINS.length]
-          };
+        // Fallback to Resend ONLY for your student email
+        if (to.endsWith('@students.wits.ac.za')) {
+          try {
+            console.log(`🔄 Falling back to Resend for student email: ${to}`);
+            
+            const resendResponse = await resend.emails.send({
+              from: 'LockedIn <onboarding@resend.dev>',
+              to: to,
+              subject: subject,
+              html: html,
+              text: text || html.replace(/<[^>]*>/g, ''),
+            });
+
+            console.log(`✅ Resend fallback successful for: ${to}`);
+            return { 
+              success: true, 
+              service: 'resend',
+              response: resendResponse 
+            };
+            
+          } catch (resendError) {
+            console.error(`❌ Resend fallback also failed for ${to}:`, resendError.message);
+            return { 
+              error: `Both services failed: ${mailersendError.message}, ${resendError.message}` 
+            };
+          }
         }
         
-        return { error: error.message };
+        // For non-student emails, only Mailersend is available
+        return { 
+          error: `Mailersend failed: ${mailersendError.message}`,
+          note: 'Resend only works for student emails'
+        };
       }
     }
   };
@@ -311,30 +329,82 @@ async function sendEmailSafe(to, subject, html, text) {
 // Export for tests
 export { emailService };
 
-// Test Resend with domain rotation
-router.get("/test-resend-rotation", async (req, res) => {
+// 🆕 NEW: Test Mailersend endpoint
+router.get("/testmailersend", async (req, res) => {
   try {
-    console.log('Testing Resend domain rotation with multiple emails...');
+    const testEmail = req.query.email || 'njam.arshia@gmail.com';
+    
+    console.log(`🧪 Testing Mailersend with email: ${testEmail}`);
+    
+    const result = await sendEmailSafe(
+      testEmail,
+      'Mailersend Test - Session Booking System',
+      `<h1>🚀 Mailersend Test Successful!</h1>
+       <p>This email was sent via <strong>Mailersend</strong> and should work with ANY email address!</p>
+       <p><strong>Test email:</strong> ${testEmail}</p>
+       <p><strong>Time:</strong> ${new Date().toISOString()}</p>
+       <p>If you received this, your session booking emails will work perfectly! 🎉</p>
+       <hr>
+       <p><em>LockedIn - Wits Study Session System</em></p>`,
+      `Mailersend Test Successful! This email was sent via Mailersend to ${testEmail}. Time: ${new Date().toISOString()}. If you received this, your session booking emails will work perfectly!`
+    );
+    
+    res.json({ 
+      success: true, 
+      message: `Mailersend test completed for ${testEmail}`,
+      testDetails: {
+        email: testEmail,
+        timestamp: new Date().toISOString(),
+        serviceUsed: result.service || 'mock',
+        environment: process.env.NODE_ENV || 'development'
+      },
+      result
+    });
+    
+  } catch (error) {
+    console.error('❌ Mailersend test failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      note: 'Check your MAILERSEND_API_KEY environment variable'
+    });
+  }
+});
+
+// 🆕 NEW: Bulk test multiple email providers
+router.get("/testmailersend-bulk", async (req, res) => {
+  try {
+    console.log('🧪 Testing Mailersend with multiple email providers...');
     
     const testEmails = [
       'njam.arshia@gmail.com',
       '2542915@students.wits.ac.za',
-      'test@example.com'
+      'test@example.com' // Fallback test
     ];
     
     const results = [];
     
     for (const email of testEmails) {
-      console.log(`Testing email: ${email}`);
+      console.log(`Testing Mailersend with: ${email}`);
+      
       const result = await sendEmailSafe(
         email,
-        `Resend Rotation Test - ${email}`,
-        `<h1>Resend Domain Rotation Test</h1>
-         <p>This email was sent using Resend's domain rotation approach.</p>
-         <p>Target: ${email}</p>
-         <p>This should work for any email address!</p>`
+        `Mailersend Bulk Test - ${email}`,
+        `<h1>Mailersend Bulk Test</h1>
+         <p>Testing email delivery to different providers:</p>
+         <ul>
+           <li><strong>Provider:</strong> ${email.split('@')[1]}</li>
+           <li><strong>Email:</strong> ${email}</li>
+           <li><strong>Time:</strong> ${new Date().toISOString()}</li>
+         </ul>
+         <p>This tests Mailersend's ability to send to ANY email address! 🎉</p>`
       );
-      results.push({ email, result });
+      
+      results.push({ 
+        email, 
+        result,
+        timestamp: new Date().toISOString()
+      });
       
       // Small delay between emails
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -342,13 +412,17 @@ router.get("/test-resend-rotation", async (req, res) => {
     
     res.json({ 
       success: true, 
-      message: 'Resend domain rotation test completed!',
+      message: 'Mailersend bulk test completed!',
       results,
-      currentDomainIndex // Show which domain we're on now
+      summary: {
+        totalTested: results.length,
+        successful: results.filter(r => r.result.success || !r.result.error).length,
+        failed: results.filter(r => r.result.error).length
+      }
     });
     
   } catch (error) {
-    console.error('Resend rotation test failed:', error);
+    console.error('Mailersend bulk test failed:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message
@@ -356,30 +430,30 @@ router.get("/test-resend-rotation", async (req, res) => {
   }
 });
 
-// Test single email with domain rotation
-router.get("/test-resend-single", async (req, res) => {
+// Keep your existing Resend test endpoints for comparison
+router.get("/test-resend-rotation", async (req, res) => {
   try {
-    const email = req.query.email || 'njam.arshia@gmail.com';
+    const testEmail = req.query.email || '2542915@students.wits.ac.za'; // Only works with verified emails
     
-    console.log(`Testing single email: ${email}`);
+    console.log(`Testing Resend (legacy) with: ${testEmail}`);
     
     const result = await sendEmailSafe(
-      email,
-      'Resend Single Test - Domain Rotation',
-      `<h1>Single Email Test</h1>
-       <p>This tests the domain rotation with a single recipient.</p>
-       <p>If this works, your session creation should work too!</p>`
+      testEmail,
+      'Resend Legacy Test',
+      `<h1>Resend Legacy Test</h1>
+       <p>This uses the old Resend service - only works with verified emails.</p>
+       <p>Test email: ${testEmail}</p>`
     );
     
     res.json({ 
       success: true, 
-      message: `Single email test completed for ${email}`,
+      message: `Resend test completed for ${testEmail}`,
       result,
-      currentDomain: RESEND_DOMAINS[currentDomainIndex]
+      note: 'Resend only works with verified student emails'
     });
     
   } catch (error) {
-    console.error('Single email test failed:', error);
+    console.error('Resend test failed:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message
@@ -387,7 +461,7 @@ router.get("/test-resend-single", async (req, res) => {
   }
 });
 
-/** Create a session (planner) - Updated for Resend but test-compatible */
+/** Create a session (planner) - Updated for Mailersend but test-compatible */
 router.post("/groups/:groupId/sessions", async (req, res, next) => {
   try {
     const user = await getUser(req);
@@ -485,36 +559,43 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
             await sendEmailSafe(
               creator.email,
               `Conflict: ${memberProfile.full_name} already booked`,
-              `${memberProfile.full_name} has already accepted another session at ${start_at}.`
+              `<p><strong>Conflict Alert</strong></p>
+               <p>${memberProfile.full_name} has already accepted another session at ${start_at}.</p>
+               <p>You may want to reschedule your session.</p>`
             );
           }
         } else {
-          // Send RSVP email
+          // Send RSVP email using Mailersend
           const acceptLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/accept/${memberProfile.id}`;
           const declineLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/decline/${memberProfile.id}`;
 
           const htmlContent = `
-            <h2>New Study Session Scheduled</h2>
+            <h2>📚 New Study Session Scheduled</h2>
             <p><strong>Date/Time:</strong> ${start_at}</p>
             ${venue ? `<p><strong>Venue:</strong> ${venue}</p>` : ''}
             ${topic ? `<p><strong>Topic:</strong> ${topic}</p>` : ''}
             ${time_goal_minutes ? `<p><strong>Time goal:</strong> ${time_goal_minutes} mins</p>` : ''}
             ${content_goal ? `<p><strong>Content goal:</strong> ${content_goal}</p>` : ''}
+            <p>Please respond to this invitation:</p>
             <p>
-              <a href="${acceptLink}" style="padding:10px 20px;background:#4CAF50;color:#fff;text-decoration:none;border-radius:5px;">
+              <a href="${acceptLink}" style="padding:10px 20px;background:#4CAF50;color:#fff;text-decoration:none;border-radius:5px;margin:5px;">
                 ✅ Accept
               </a>
-              &nbsp;&nbsp;
-              <a href="${declineLink}" style="padding:10px 20px;background:#f44336;color:#fff;text-decoration:none;border-radius:5px;">
+              <a href="${declineLink}" style="padding:10px 20px;background:#f44336;color:#fff;text-decoration:none;border-radius:5px;margin:5px;">
                 ❌ Decline
               </a>
             </p>
+            <hr>
+            <p><em>LockedIn - Wits Study Session System</em></p>
           `;
+
+          const textContent = `New Study Session: ${start_at}${venue ? ` at ${venue}` : ''}${topic ? ` - ${topic}` : ''}. Accept: ${acceptLink} or Decline: ${declineLink}`;
 
           await sendEmailSafe(
             memberProfile.email,
-            `New Study Session in your group`,
-            htmlContent
+            `📅 New Study Session in your group`,
+            htmlContent,
+            textContent
           );
           
           // Create invite record
@@ -551,7 +632,7 @@ router.get("/sessions/:sessionId/accept/:userId", async (req, res) => {
       responded_at: new Date().toISOString(), 
     });
   if (error) return res.status(500).send("Error updating RSVP");
-  res.send("✅ You’ve accepted the session!");
+  res.send("✅ You've accepted the session!");
 });
 
 router.get("/sessions/:sessionId/decline/:userId", async (req, res) => {
@@ -565,7 +646,7 @@ router.get("/sessions/:sessionId/decline/:userId", async (req, res) => {
       responded_at: new Date().toISOString(),  
     });
   if (error) return res.status(500).send("Error updating RSVP");
-  res.send("❌ You’ve declined the session.");
+  res.send("❌ You've declined the session.");
 });
 
 // POST /groups/:groupId/sessions/:sessionId/respond
@@ -615,11 +696,12 @@ router.post("/groups/:groupId/sessions/:sessionId/respond", async (req, res, nex
         const { data: creator } = await supabase.from("profiles").select("email").eq("id", session.creator_id).single();
 
         if (creator?.email) {
-          // Updated: Use sendEmailSafe instead of transporter.sendMail
           await sendEmailSafe(
             creator.email,
             `Conflict: ${prof?.full_name} already booked`,
-            `${prof?.full_name} has already accepted another session at ${session.start_at}.`
+            `<p><strong>Conflict Alert</strong></p>
+             <p>${prof?.full_name} has already accepted another session at ${session.start_at}.</p>
+             <p>They cannot accept your session due to this scheduling conflict.</p>`
           );
         }
 
@@ -644,6 +726,8 @@ router.post("/groups/:groupId/sessions/:sessionId/respond", async (req, res, nex
     next(e);
   }
 });
+
+
 
 
 /** List upcoming sessions for a group */
