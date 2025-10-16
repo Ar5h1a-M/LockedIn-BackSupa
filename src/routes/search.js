@@ -26,7 +26,6 @@
  *   post:
  *     summary: Send a friend invite to another user
  *     tags: [Search]
- *     security: [{ bearerAuth: [] }]
  *     requestBody:
  *       required: true
  *       content:

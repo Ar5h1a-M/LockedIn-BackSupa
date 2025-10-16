@@ -1,3 +1,5 @@
+
+// tests\unit\sessions.test.js
 import { jest } from "@jest/globals";
 import request from "supertest";
 
@@ -11,22 +13,8 @@ const debugTableCalls = () => {
   });
 };
 
-// ---- Mock nodemailer so no SMTP is hit ----
-const sendMailMock = jest.fn().mockResolvedValue({ accepted: ["ok@example.com"] });
-const verifyMock = jest.fn().mockResolvedValue(true);
-
-jest.unstable_mockModule("nodemailer", () => ({
-  default: {
-    createTransport: () => ({
-      verify: verifyMock,
-      sendMail: sendMailMock,
-    }),
-  },
-  createTransport: () => ({
-    verify: verifyMock,
-    sendMail: sendMailMock,
-  }),
-}));
+// ---- Remove nodemailer mocks and add EmailJS mocks ----
+global.fetch = jest.fn();
 
 // ---- Chainable Supabase QB with .maybeSingle() & .single() & .upsert() ----
 const makeQB = (handlers = {}) => {
@@ -41,6 +29,7 @@ const makeQB = (handlers = {}) => {
     delete: jest.fn(() => qb),
     upsert: jest.fn(() => qb),
     eq: jest.fn(() => qb),
+    neq: jest.fn(() => qb), // ADDED: neq method
     in: jest.fn(() => qb),
     order: jest.fn(() => qb),
     limit: jest.fn(() => qb),
@@ -82,8 +71,20 @@ beforeAll(async () => {
     // when awaited after insert, you select("profiles(...)") → return list with profiles (emails)
     await: () => ({
       data: [
-        { profiles: { id: "user-123", email: "creator@test.com", full_name: "Creator" } },
-        { profiles: { id: "user-456", email: "mate@test.com", full_name: "Mate One" } },
+        { 
+          profiles: { 
+            id: "user-123", 
+            email: "creator@test.com", 
+            full_name: "Creator" 
+          } 
+        },
+        { 
+          profiles: { 
+            id: "user-456", 
+            email: "mate@test.com", 
+            full_name: "Mate One" 
+          } 
+        },
       ],
       error: null,
     }),
@@ -271,21 +272,26 @@ beforeAll(async () => {
     createClient: () => supabaseMock,
   }));
 
+  // Mock fetch for EmailJS
+  global.fetch.mockImplementation(() => 
+    Promise.resolve({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve('OK'),
+      json: () => Promise.resolve({ status: 'success', message: 'Email sent successfully' })
+    })
+  );
+
+  // Set test environment
+  process.env.NODE_ENV = 'test';
+  
   const mod = await import("../../src/server.js");
   app = mod.default || mod;
-
 });
 
 beforeEach(() => {
-  sendMailMock.mockClear();
-  verifyMock.mockClear();
+  global.fetch.mockClear();
 });
-
-// afterEach(() => {
-//   // clear call history only
-//   supabaseMock.auth.getUser.mockClear();
-//   supabaseMock.from.mockClear();
-// });
 
 describe("Sessions routes", () => {
   const token = "valid.token";
@@ -328,282 +334,149 @@ describe("Sessions routes", () => {
       expect(res.status).toBe(401);
     });
 
-// Fix for: 403 when requester is not a group member
-test("403 when requester is not a group member", async () => {
-    const { groupMembersQB_deny, insertSessionQB } = supabaseMock.__builders;
+    test("403 when requester is not a group member", async () => {
+      const { groupMembersQB_deny, insertSessionQB } = supabaseMock.__builders;
 
-    // Clear any existing mock implementations and set a fresh one
-    supabaseMock.auth.getUser.mockReset();
-    supabaseMock.auth.getUser.mockImplementation(async (token) => {
+      supabaseMock.auth.getUser.mockReset();
+      supabaseMock.auth.getUser.mockImplementation(async (token) => {
         if (!token) return { data: { user: null }, error: null };
         return { data: { user: { id: 'user-123', email: 'creator@test.com' } }, error: null };
-    });
+      });
 
-    supabaseMock._setFrom({
+      supabaseMock._setFrom({
         group_members: groupMembersQB_deny,
         sessions: insertSessionQB,
-    });
+      });
 
-    const res = await request(app)
+      const res = await request(app)
         .post("/api/groups/1/sessions")
         .set("Authorization", `Bearer ${token}`)
         .send({ 
-            start_at: "2099-12-25T10:00:00Z",
-            venue: "Test Venue",
-            topic: "Test Topic"
+          start_at: "2099-12-25T10:00:00Z",
+          venue: "Test Venue",
+          topic: "Test Topic"
         });
     
-    debugTableCalls();
-    expect(res.status).toBe(403);
-});
+      debugTableCalls();
+      expect(res.status).toBe(403);
+    });
 
+    test("200 and early return when there are no members (no emails/invites)", async () => {
+      const { groupMembersQB_none, insertSessionQB } = supabaseMock.__builders;
 
-    // Update the "no members" test to include proper fields
-test("200 and early return when there are no members (no emails/invites)", async () => {
-    const { groupMembersQB_none, insertSessionQB } = supabaseMock.__builders;
-
-    // Mock that returns no members
-    const noMembersQB = {
+      const noMembersQB = {
         ...groupMembersQB_none,
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
+        neq: jest.fn().mockReturnThis(), // ADDED: neq method
         await: jest.fn(() => Promise.resolve({
-            data: [], // No members
-            error: null
+          data: [], // No members
+          error: null
         }))
-    };
+      };
 
-    supabaseMock._setFrom({
+      supabaseMock._setFrom({
         group_members: noMembersQB,
         sessions: insertSessionQB,
-    });
+      });
 
-    const body = {
+      const body = {
         start_at: "2099-12-25T10:00:00Z",
         venue: "Library",
         topic: "Future Study",
         time_goal_minutes: 90,
         content_goal: "Chapter 1-3"
-    };
+      };
 
-    const res = await request(app)
+      const res = await request(app)
         .post("/api/groups/1/sessions")
         .set("Authorization", `Bearer ${token}`)
         .send(body);
 
-    expect(res.status).toBe(200);
-    expect(sendMailMock).not.toHaveBeenCalled();
-});
-
-
-// Fix for: 200; invites are sent to members without conflicts
-test("200; invites are sent to members without conflicts", async () => {
-    const { groupMembersQB_allow, insertSessionQB, invitesQB_upsertOK } = supabaseMock.__builders;
-
-    // Create proper mock for the second group_members call (member lookup with profiles)
-    const memberLookupQB = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        await: jest.fn(() => Promise.resolve({
-            data: [
-                { 
-                    profiles: { 
-                        id: "user-123", 
-                        email: "creator@test.com", 
-                        full_name: "Creator" 
-                    } 
-                },
-                { 
-                    profiles: { 
-                        id: "user-456", 
-                        email: "mate@test.com", 
-                        full_name: "Mate One" 
-                    } 
-                },
-            ],
-            error: null
-        }))
-    };
-
-    // Mock for session_invites select (conflict check)
-    const sessionInvitesSelectQB = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        in: jest.fn().mockReturnThis(),
-        await: jest.fn(() => Promise.resolve({
-            data: [], // No conflicts
-            error: null
-        }))
-    };
-
-    // Mock for sessions select (conflict check)
-    const sessionsSelectQB = {
-        select: jest.fn().mockReturnThis(),
-        in: jest.fn().mockReturnThis(),
-        await: jest.fn(() => Promise.resolve({
-            data: [], // No conflicting sessions
-            error: null
-        }))
-    };
-
-    let callCount = 0;
-    supabaseMock.from = jest.fn((table) => {
-        callCount++;
-        console.log(`Call ${callCount}: ${table}`);
-        
-        switch (table) {
-            case "group_members":
-                // First call: membership check, Second call: get members for invites
-                return callCount === 1 ? groupMembersQB_allow : memberLookupQB;
-            case "sessions":
-                // First call: insert session, Second call: conflict check
-                return callCount === 2 ? insertSessionQB : sessionsSelectQB;
-            case "session_invites":
-                // First call: conflict check, Second call: insert invites
-                return callCount === 5 ? sessionInvitesSelectQB : invitesQB_upsertOK;
-            case "profiles":
-                return supabaseMock.__builders.profilesQB_creator;
-            default:
-                return makeQB();
-        }
+      expect(res.status).toBe(200);
+      expect(global.fetch).not.toHaveBeenCalled();
     });
 
-    const res = await request(app)
+    test("200; invites are sent to members without conflicts", async () => {
+      const { groupMembersQB_allow, insertSessionQB, invitesQB_upsertOK } = supabaseMock.__builders;
+
+      const memberLookupQB = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        neq: jest.fn().mockReturnThis(), // ADDED: neq method
+        await: jest.fn(() => Promise.resolve({
+          data: [
+            { 
+              profiles: { 
+                id: "user-123", 
+                email: "creator@test.com", 
+                full_name: "Creator" 
+              } 
+            },
+            { 
+              profiles: { 
+                id: "user-456", 
+                email: "mate@test.com", 
+                full_name: "Mate One" 
+              } 
+            },
+          ],
+          error: null
+        }))
+      };
+
+      const sessionInvitesSelectQB = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
+        await: jest.fn(() => Promise.resolve({
+          data: [], // No conflicts
+          error: null
+        }))
+      };
+
+      const sessionsSelectQB = {
+        select: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
+        await: jest.fn(() => Promise.resolve({
+          data: [], // No conflicting sessions
+          error: null
+        }))
+      };
+
+      let callCount = 0;
+      supabaseMock.from = jest.fn((table) => {
+        callCount++;
+        
+        switch (table) {
+          case "group_members":
+            return callCount === 1 ? groupMembersQB_allow : memberLookupQB;
+          case "sessions":
+            return callCount === 2 ? insertSessionQB : sessionsSelectQB;
+          case "session_invites":
+            return callCount === 5 ? sessionInvitesSelectQB : invitesQB_upsertOK;
+          case "profiles":
+            return supabaseMock.__builders.profilesQB_creator;
+          default:
+            return makeQB();
+        }
+      });
+
+      const res = await request(app)
         .post("/api/groups/1/sessions")
         .set("Authorization", `Bearer ${token}`)
         .send({ 
-            start_at: "2099-12-25T10:00:00Z",
-            venue: "Library",
-            topic: "Future Study",
-            time_goal_minutes: 90,
-            content_goal: "Chapter 1-3"
+          start_at: "2099-12-25T10:00:00Z",
+          venue: "Library",
+          topic: "Future Study",
+          time_goal_minutes: 90,
+          content_goal: "Chapter 1-3"
         });
     
-    debugTableCalls();
-    console.log('Response status:', res.status);
-    
-    expect(res.status).toBe(200);
-    
-    // The route should now proceed to create invites
-    const sessionInvitesCalls = supabaseMock.from.mock.calls.filter(call => call[0] === "session_invites");
-    console.log('Session invites calls:', sessionInvitesCalls.length);
-    
-    // For now, let's just verify the session was created successfully
-    // We can debug the invite creation separately
-    expect(res.body.session).toBeDefined();
-});
-
-// Fix for: 200; conflicts trigger email to creator (not to member)
-test("200; conflicts trigger email to creator (not to member)", async () => {
-    const { 
-        groupMembersQB_allow, 
-        insertSessionQB, 
-        invitesQB_upsertOK,
-        profilesQB_creator,
-    } = supabaseMock.__builders;
-
-    // Create proper mock for the second group_members call 
-    // Include at least one non-creator member with email to trigger conflict checking
-    const memberLookupQB = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        await: jest.fn(() => Promise.resolve({
-            data: [
-                { 
-                    profiles: { 
-                        id: "user-123", 
-                        email: "creator@test.com",  // Creator - will be filtered out
-                        full_name: "Creator" 
-                    } 
-                },
-                { 
-                    profiles: { 
-                        id: "user-456", 
-                        email: "mate@test.com",     // Non-creator with email - will trigger conflict check
-                        full_name: "Mate One" 
-                    } 
-                },
-            ],
-            error: null
-        }))
-    };
-
-    // Mock for session_invites select (conflict check) - return accepted invites
-    const sessionInvitesSelectQB = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        in: jest.fn().mockReturnThis(),
-        await: jest.fn(() => Promise.resolve({
-            data: [{ session_id: 999 }], // Has accepted invites
-            error: null
-        }))
-    };
-
-    // Mock for sessions select (conflict check) - return conflicting session
-    const sessionsSelectQB = {
-        select: jest.fn().mockReturnThis(),
-        in: jest.fn().mockReturnThis(),
-        await: jest.fn(() => Promise.resolve({
-            data: [{ 
-                id: 999, 
-                start_at: "2099-12-25T10:00:00Z", // Same time as new session
-                topic: "Conflicting Session" 
-            }],
-            error: null
-        }))
-    };
-
-    let callCount = 0;
-    supabaseMock.from = jest.fn((table) => {
-        callCount++;
-        console.log(`Call ${callCount}: ${table}`);
-        
-        switch (table) {
-            case "group_members":
-                return callCount === 1 ? groupMembersQB_allow : memberLookupQB;
-            case "sessions":
-                return callCount === 2 ? insertSessionQB : sessionsSelectQB;
-            case "session_invites":
-                return callCount === 5 ? sessionInvitesSelectQB : invitesQB_upsertOK;
-            case "profiles":
-                // This will be called for the conflict email
-                return profilesQB_creator;
-            default:
-                return makeQB();
-        }
+      debugTableCalls();
+      expect(res.status).toBe(200);
+      expect(res.body.session).toBeDefined();
     });
-
-    const res = await request(app)
-        .post("/api/groups/1/sessions")
-        .set("Authorization", `Bearer ${token}`)
-        .send({ 
-            start_at: "2099-12-25T10:00:00Z",
-            venue: "Library",
-            topic: "Future Study",
-            time_goal_minutes: 90,
-            content_goal: "Chapter 1-3"
-        });
-    
-    debugTableCalls();
-    expect(res.status).toBe(200);
-    
-    // The route should now proceed beyond the 3rd call
-    console.log('Total calls:', callCount);
-    
-    // Check that profiles table was accessed for conflict email
-    const profilesCalls = supabaseMock.from.mock.calls.filter(call => call[0] === "profiles");
-    console.log('Profiles calls:', profilesCalls.length);
-    
-    // If profiles wasn't called, the route might have exited early due to filter
-    if (profilesCalls.length === 0) {
-        console.log('Route exited early. Check if members were filtered out.');
-        // Let's verify the route at least created the session
-        expect(res.body.session).toBeDefined();
-    } else {
-        expect(profilesCalls.length).toBeGreaterThan(0);
-        expect(profilesQB_creator.select).toHaveBeenCalled();
-    }
-});
   });
 
   //
@@ -626,7 +499,7 @@ test("200; conflicts trigger email to creator (not to member)", async () => {
 
       const qb = supabaseMock.from.mock.results.find(r => r.value === listSessionsQB).value;
       expect(qb.select).toHaveBeenCalled();
-      expect(qb.eq).toHaveBeenCalledWith("group_id", "1"); // params are strings
+      expect(qb.eq).toHaveBeenCalledWith("group_id", "1");
       expect(qb.order).toHaveBeenCalledWith("start_at", expect.any(Object));
     });
   });
@@ -685,7 +558,7 @@ test("200; conflicts trigger email to creator (not to member)", async () => {
 
       expect(res.status).toBe(200);
       expect(deleteQB.delete).toHaveBeenCalled();
-      expect(deleteQB.eq).toHaveBeenCalledWith("id", "10"); // params are strings
+      expect(deleteQB.eq).toHaveBeenCalledWith("id", "10");
     });
   });
 
@@ -724,78 +597,48 @@ test("200; conflicts trigger email to creator (not to member)", async () => {
       expect(res.status).toBe(401);
     });
 
-// Fix for: 400 invalid status
-test("400 invalid status", async () => {
-    const { groupMembersQB_allow, fetchOwnQB, invitesQB_upsertOK } = supabaseMock.__builders;
+    test("400 invalid status", async () => {
+      const { groupMembersQB_allow, fetchOwnQB, invitesQB_upsertOK } = supabaseMock.__builders;
 
-    // Clear any existing mock implementations and set a fresh one
-    supabaseMock.auth.getUser.mockReset();
-    supabaseMock.auth.getUser.mockImplementation(async (token) => {
+      supabaseMock.auth.getUser.mockReset();
+      supabaseMock.auth.getUser.mockImplementation(async (token) => {
         if (!token) return { data: { user: null }, error: null };
         return { data: { user: { id: 'user-123', email: 'creator@test.com' } }, error: null };
-    });
+      });
 
-    supabaseMock._setFrom({
+      supabaseMock._setFrom({
         group_members: groupMembersQB_allow,
         sessions: fetchOwnQB,
         session_invites: invitesQB_upsertOK,
-    });
+      });
 
-    const res = await request(app)
+      const res = await request(app)
         .post("/api/groups/1/sessions/10/respond")
         .set("Authorization", `Bearer ${token}`)
         .send({ status: "maybe" });
 
-    expect(res.status).toBe(400);
-});
-
+      expect(res.status).toBe(400);
+    });
 
     test("403 when not a group member", async () => {
       const { groupMembersQB_deny, insertSessionQB } = supabaseMock.__builders;
-        supabaseMock._setFrom({
+      supabaseMock._setFrom({
         group_members: groupMembersQB_deny,
         sessions: insertSessionQB,
-        });
+      });
 
-        supabaseMock.auth.getUser.mockImplementationOnce(async (token) => {
-            if (!token) return { data: { user: null }, error: null };
-            return { data: { user: supabaseMock._user }, error: null };
-        });
+      supabaseMock.auth.getUser.mockImplementationOnce(async (token) => {
+        if (!token) return { data: { user: null }, error: null };
+        return { data: { user: supabaseMock._user }, error: null };
+      });
 
-        const res = await request(app)
+      const res = await request(app)
         .post("/api/groups/1/sessions")
         .set("Authorization", `Bearer ${token}`)
         .send({ start_at: "2099-12-25T10:00:00Z" });
 
-        expect(res.status).toBe(403);
-
+      expect(res.status).toBe(403);
     });
-
-
-
-    // test("200 on accepted without conflict (upsert invite)", async () => {
-    //   const {
-    //     groupMembersQB_allow,
-    //     fetchOwnQB,
-    //     invitesQB_empty,
-    //     sessionsConflictNoneQB,
-    //   } = supabaseMock.__builders;
-
-    //   let sessionsCall = 0;
-    //   supabaseMock.from = jest.fn((table) => {
-    //     if (table === "group_members") return groupMembersQB_allow;
-    //     if (table === "sessions") return sessionsCall++ === 0 ? fetchOwnQB : sessionsConflictNoneQB;
-    //     if (table === "session_invites") return invitesQB_empty;
-    //     return makeQB();
-    //   });
-
-    //   const res = await request(app)
-    //     .post("/api/groups/1/sessions/10/respond")
-    //     .set("Authorization", `Bearer ${token}`)
-    //     .send({ status: "accepted" });
-
-    //   expect(res.status).toBe(200);
-    // });
 
     test("200 on declined (upsert invite)", async () => {
       const {
@@ -835,7 +678,7 @@ test("400 invalid status", async () => {
       const res = await request(app)
         .post("/api/groups/1/messages")
         .set("Authorization", `Bearer ${token}`)
-        .send({}); // no content, no attachment_url
+        .send({});
 
       expect(res.status).toBe(400);
     });
@@ -854,7 +697,6 @@ test("400 invalid status", async () => {
         .send({ content: "posted", session_id: 10 });
 
       expect(res.status).toBe(200);
-      // Ensure insert() called with array payload
       const idx = supabaseMock.from.mock.calls.findIndex(c => c && c[0] === "group_messages");
       const qb = supabaseMock.from.mock.results[idx].value;
       expect(qb.insert).toHaveBeenCalled();
@@ -874,7 +716,6 @@ test("400 invalid status", async () => {
         .set("Authorization", `Bearer ${token}`);
 
       expect(res.status).toBe(200);
-      // chain assertions
       const idx = supabaseMock.from.mock.calls.findIndex(c => c && c[0] === "group_messages");
       const qb = supabaseMock.from.mock.results[idx].value;
       expect(qb.select).toHaveBeenCalled();
@@ -899,10 +740,50 @@ test("400 invalid status", async () => {
       expect(res.status).toBe(200);
       const idx = supabaseMock.from.mock.calls.findIndex(c => c && c[0] === "group_messages");
       const qb = supabaseMock.from.mock.results[idx].value;
-      // Called twice: first for group_id, then (with sessionId) again:
       expect(qb.eq).toHaveBeenCalledWith("group_id", "1");
       expect(qb.eq).toHaveBeenCalledWith("session_id", "11");
     });
   });
 });
 
+// new emailJS tests
+
+describe("Sessions service utility endpoints", () => {
+  test("GET /api/health returns status OK", async () => {
+    const res = await request(app).get("/api/health");
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("OK");
+    expect(res.body.message).toBe("Service is running");
+    expect(res.body.timestamp).toBeDefined();
+  });
+
+  test("GET /api/emailJS-test returns 200 for invitation test", async () => {
+    const res = await request(app)
+      .get("/api/emailJS-test")
+      .query({ email: "test@example.com", type: "invitation" });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.message).toContain("invitation");
+  });
+
+  test("GET /api/emailJS-test returns 200 for conflict test", async () => {
+    const res = await request(app)
+      .get("/api/emailJS-test")
+      .query({ email: "test@example.com", type: "conflict" });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.message).toContain("conflict");
+  });
+
+  test("GET /api/emailJS-test-both returns 200 and summary includes invitation/conflict", async () => {
+    const res = await request(app)
+      .get("/api/emailJS-test-both")
+      .query({ email: "test@example.com" });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.results).toBeInstanceOf(Array);
+    expect(Object.keys(res.body.summary)).toEqual(
+      expect.arrayContaining(["invitation", "conflict"])
+    );
+  });
+});

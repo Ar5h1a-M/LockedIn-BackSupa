@@ -6,8 +6,6 @@
  *   post:
  *     summary: Create a planned session
  *     tags: [Sessions]
- *     security:
- *       - bearerAuth: []         # normal mode
  *     parameters:
  *       - in: header
  *         name: x-partner-key
