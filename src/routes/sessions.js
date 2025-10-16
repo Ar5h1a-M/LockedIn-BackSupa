@@ -258,41 +258,54 @@ if (process.env.NODE_ENV === "test") {
         console.log(`📧 Sending ${emailType} email to: ${to}`);
 
         if (!process.env.EMAILJS_SERVICE_ID || !process.env.EMAILJS_USER_ID) {
-        console.error('❌ Missing EmailJS environment variables');
-        return { 
-          error: 'EmailJS configuration incomplete - check environment variables',
-          emailType: emailType
-        };
-      }
+          console.error('❌ Missing EmailJS environment variables');
+          return { 
+            error: 'EmailJS configuration incomplete - check environment variables',
+            emailType: emailType
+          };
+        }
         
         // Choose template based on email type
         const templateId = emailType === 'conflict' 
           ? process.env.EMAILJS_CONFLICT_TEMPLATE_ID 
           : process.env.EMAILJS_INVITATION_TEMPLATE_ID;
         
-        const templateParams = {
-          email: to,
-          subject: subject,
-          name: templateData.recipient_name || to.split('@')[0],
-          session_time: templateData.session_time || '',
-          venue: templateData.venue || '',
-          topic: templateData.topic || 'Group Study Session',
-          time_goal: templateData.time_goal || '',
-          content_goal: templateData.content_goal || '',
-          organizer: templateData.organizer || 'A group member',
-          action_url: templateData.accept_link || '',
-          support_url: templateData.decline_link || '',
-          conflict_message: templateData.conflict_message || '',
-          student_name: templateData.student_name || ''
-        };
+        // FIX: Use exact parameter names from your template examples
+        let templateParams;
+        
+        if (emailType === 'conflict') {
+          // Conflict template parameters (from your example)
+          templateParams = {
+            name: templateData.recipient_name || to.split('@')[0],
+            conflict_message: templateData.conflict_message || '',
+            session_time: templateData.session_time || '',
+            student_name: templateData.student_name || '',
+            email: to // This is the recipient email
+          };
+        } else {
+          // Invitation template parameters (from your example)
+          templateParams = {
+            name: templateData.recipient_name || to.split('@')[0],
+            topic: templateData.topic || 'Group Study Session',
+            session_time: templateData.session_time || '',
+            venue: templateData.venue || '',
+            time_goal: templateData.time_goal || '',
+            content_goal: templateData.content_goal || '',
+            organizer: templateData.organizer || 'A group member',
+            action_url: templateData.accept_link || '',
+            support_url: templateData.decline_link || '',
+            email: to // This is the recipient email
+          };
+        }
 
-        // Use node-fetch or native fetch - ensure it's available
+        console.log(`📤 Sending ${emailType} email with params:`, Object.keys(templateParams));
+
         const emailjsResponse = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Origin': 'https://lockedin-wits.vercel.app', // Your actual frontend
+            'Origin': 'https://lockedin-wits.vercel.app',
           },
           body: JSON.stringify({
             service_id: process.env.EMAILJS_SERVICE_ID,
@@ -302,16 +315,32 @@ if (process.env.NODE_ENV === "test") {
           })
         });
 
+        // FIX: Handle both JSON and "OK" text responses
+        const responseText = await emailjsResponse.text();
+        
+        let result;
+        try {
+          result = JSON.parse(responseText);
+        } catch (parseError) {
+          // If it's not JSON, check if it's "OK" (success response)
+          if (responseText === 'OK' || responseText.trim() === 'OK') {
+            result = { status: 'success', message: 'Email sent successfully' };
+          } else {
+            // It's some other text error
+            throw new Error(`EmailJS returned: ${responseText}`);
+          }
+        }
+
         if (!emailjsResponse.ok) {
-          const errorText = await emailjsResponse.text();
-          throw new Error(`EmailJS API error: ${emailjsResponse.status} - ${errorText}`);
+          throw new Error(`EmailJS API error: ${emailjsResponse.status} - ${JSON.stringify(result)}`);
         }
 
         console.log(`✅ ${emailType} email sent successfully to: ${to}`);
         return { 
           success: true, 
           service: 'emailjs',
-          emailType: emailType
+          emailType: emailType,
+          response: result
         };
         
       } catch (error) {
@@ -337,32 +366,42 @@ export { emailService };
 router.get("/emailJS-test", async (req, res) => {
   try {
     const testEmail = req.query.email || 'njam.arshia@gmail.com';
+    const testType = req.query.type || 'invitation';
     
-    console.log(`🧪 Testing EmailJS to: ${testEmail}`);
+    console.log(`🧪 Testing EmailJS ${testType} template to: ${testEmail}`);
     
-    // Use the exact parameter names that your EmailJS template expects
-    const templateParams = {
-      email: testEmail,
-      subject: 'Simple EmailJS Test',
-      name: "Test User",
-      session_time: new Date().toLocaleString(),
-      topic: "Test Session",
-      venue: "Test Venue", 
-      organizer: "Test Organizer",
-      action_url: "https://www.google.com",
-      support_url: "https://www.wits.ac.za",
-      // Add these common required fields that EmailJS might expect:
-      email: testEmail, // Some templates use 'email' instead of 'to_email'
-      message: "This is a test message", // Fallback content
-      reply_to: testEmail // Sometimes required
-    };
+    let templateParams;
+    
+    if (testType === 'conflict') {
+      // Test conflict template with exact parameters from your example
+      templateParams = {
+        name: "Test Creator",
+        conflict_message: "Test Student has a scheduling conflict at this time.",
+        session_time: new Date().toLocaleString(),
+        student_name: "Test Student",
+        email: testEmail
+      };
+    } else {
+      // Test invitation template with exact parameters from your example
+      templateParams = {
+        name: "Test User",
+        topic: "Computer Science Study Session",
+        session_time: new Date().toLocaleString(),
+        venue: "Wits Library",
+        time_goal: "120",
+        content_goal: "Complete Chapter 5 exercises",
+        organizer: "Test Organizer",
+        action_url: "https://www.google.com",
+        support_url: "https://www.wits.ac.za",
+        email: testEmail
+      };
+    }
 
-    console.log('📤 Sending to EmailJS with params:', {
-      service_id: process.env.EMAILJS_SERVICE_ID?.substring(0, 10) + '...',
-      template_id: process.env.EMAILJS_INVITATION_TEMPLATE_ID?.substring(0, 10) + '...',
-      user_id: process.env.EMAILJS_USER_ID?.substring(0, 10) + '...',
-      to_email: testEmail
-    });
+    console.log(`📤 Sending ${testType} email with params:`, templateParams);
+
+    const templateId = testType === 'conflict' 
+      ? process.env.EMAILJS_CONFLICT_TEMPLATE_ID 
+      : process.env.EMAILJS_INVITATION_TEMPLATE_ID;
 
     const emailjsResponse = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
       method: 'POST',
@@ -373,42 +412,50 @@ router.get("/emailJS-test", async (req, res) => {
       },
       body: JSON.stringify({
         service_id: process.env.EMAILJS_SERVICE_ID,
-        template_id: process.env.EMAILJS_INVITATION_TEMPLATE_ID,
+        template_id: templateId,
         user_id: process.env.EMAILJS_USER_ID,
-        template_params: templateParams,
-        accessToken: process.env.EMAILJS_USER_ID // Sometimes needed
+        template_params: templateParams
       })
     });
 
-    if (!emailjsResponse.ok) {
-      const errorText = await emailjsResponse.text();
-      console.error('❌ EmailJS API error details:', errorText);
-      throw new Error(`EmailJS API error: ${emailjsResponse.status} - ${errorText}`);
+    // FIX: Handle both JSON and "OK" text responses
+    const responseText = await emailjsResponse.text();
+    
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (parseError) {
+      if (responseText === 'OK' || responseText.trim() === 'OK') {
+        result = { status: 'success', message: 'Email sent successfully' };
+      } else {
+        throw new Error(`EmailJS returned: ${responseText}`);
+      }
     }
 
-    const result = await emailjsResponse.json();
-    console.log('✅ EmailJS response:', result);
+    if (!emailjsResponse.ok) {
+      throw new Error(`EmailJS API error: ${emailjsResponse.status} - ${JSON.stringify(result)}`);
+    }
 
+    console.log(`✅ ${testType} test successful!`);
+    
     res.json({ 
       success: true, 
-      message: `Test email sent to ${testEmail}`,
+      message: `${testType} test email sent to ${testEmail}`,
       status: emailjsResponse.status,
-      timestamp: new Date().toISOString(),
-      response: result
+      response: result,
+      timestamp: new Date().toISOString()
     });
     
   } catch (error) {
     console.error('❌ EmailJS test failed:', error);
     res.status(500).json({ 
       success: false, 
-      error: error.message,
-      note: 'Check if template parameters match your EmailJS template variables'
+      error: error.message
     });
   }
 });
 
-
-// 🆕 Test both templates at once
+// 🆕 Test both templates at once (Updated)
 router.get("/emailJS-test-both", async (req, res) => {
   try {
     const testEmail = req.query.email || 'njam.arshia@gmail.com';
@@ -417,7 +464,7 @@ router.get("/emailJS-test-both", async (req, res) => {
     
     const results = [];
     
-    // Test invitation template
+    // Test invitation template with exact parameters
     const invitationResult = await sendEmailSafe(
       testEmail,
       '📚 Test Session Invitation',
@@ -432,8 +479,8 @@ router.get("/emailJS-test-both", async (req, res) => {
         time_goal: "120",
         content_goal: "Complete Chapter 5",
         organizer: "Test Organizer",
-        accept_link: "https://courses.ms.wits.ac.za/accept-test",
-        decline_link: "https://courses.ms.wits.ac.za/decline-test"
+        accept_link: "https://www.google.com",
+        decline_link: "https://www.wits.ac.za"
       }
     );
     results.push({ type: 'invitation', result: invitationResult });
@@ -441,7 +488,7 @@ router.get("/emailJS-test-both", async (req, res) => {
     // Wait 2 seconds between emails
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    // Test conflict template  
+    // Test conflict template with exact parameters
     const conflictResult = await sendEmailSafe(
       testEmail,
       '⚠️ Test Conflict Alert',
