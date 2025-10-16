@@ -257,9 +257,10 @@ if (process.env.NODE_ENV === "test") {
         console.log(`📧 Attempting to send email to: ${to}`);
         
         // Try Mailersend first (works with ALL emails)
-        const mailersendResponse = await mailersend.send({
+        // ✅ FIXED: Use .emails.send() instead of .send()
+        const mailersendResponse = await mailersend.emails.send({
           from: {
-            email: process.env.MAILERSEND_FROM_EMAIL || "noreply@trial-xyz.mlsender.net",
+            email: process.env.MAILERSEND_FROM_EMAIL || "noreply@test-ywj2lpm1o71g7oqz.mlsender.net",
             name: "LockedIn Wits"
           },
           to: [
@@ -329,7 +330,7 @@ async function sendEmailSafe(to, subject, html, text) {
 // Export for tests
 export { emailService };
 
-// 🆕 NEW: Test Mailersend endpoint
+// 🆕 UPDATED: Test Mailersend endpoint with fixed method
 router.get("/testmailersend", async (req, res) => {
   try {
     const testEmail = req.query.email || 'njam.arshia@gmail.com';
@@ -371,92 +372,61 @@ router.get("/testmailersend", async (req, res) => {
   }
 });
 
-// 🆕 NEW: Bulk test multiple email providers
-router.get("/testmailersend-bulk", async (req, res) => {
+// 🆕 UPDATED: Quick test with direct Mailersend call
+router.get("/test-mailersend-direct", async (req, res) => {
   try {
-    console.log('🧪 Testing Mailersend with multiple email providers...');
+    const { MailerSend } = await import('mailersend');
     
-    const testEmails = [
-      'njam.arshia@gmail.com',
-      '2542915@students.wits.ac.za',
-      'test@example.com' // Fallback test
-    ];
-    
-    const results = [];
-    
-    for (const email of testEmails) {
-      console.log(`Testing Mailersend with: ${email}`);
-      
-      const result = await sendEmailSafe(
-        email,
-        `Mailersend Bulk Test - ${email}`,
-        `<h1>Mailersend Bulk Test</h1>
-         <p>Testing email delivery to different providers:</p>
-         <ul>
-           <li><strong>Provider:</strong> ${email.split('@')[1]}</li>
-           <li><strong>Email:</strong> ${email}</li>
-           <li><strong>Time:</strong> ${new Date().toISOString()}</li>
-         </ul>
-         <p>This tests Mailersend's ability to send to ANY email address! 🎉</p>`
-      );
-      
-      results.push({ 
-        email, 
-        result,
-        timestamp: new Date().toISOString()
-      });
-      
-      // Small delay between emails
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-    
-    res.json({ 
-      success: true, 
-      message: 'Mailersend bulk test completed!',
-      results,
-      summary: {
-        totalTested: results.length,
-        successful: results.filter(r => r.result.success || !r.result.error).length,
-        failed: results.filter(r => r.result.error).length
-      }
+    const mailersend = new MailerSend({
+      api_key: process.env.MAILERSEND_API_KEY,
     });
-    
-  } catch (error) {
-    console.error('Mailersend bulk test failed:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message
-    });
-  }
-});
 
-// Keep your existing Resend test endpoints for comparison
-router.get("/test-resend-rotation", async (req, res) => {
-  try {
-    const testEmail = req.query.email || '2542915@students.wits.ac.za'; // Only works with verified emails
+    const testEmail = req.query.email || 'njam.arshia@gmail.com';
     
-    console.log(`Testing Resend (legacy) with: ${testEmail}`);
+    console.log(`🧪 DIRECT Testing Mailersend to: ${testEmail}`);
     
-    const result = await sendEmailSafe(
-      testEmail,
-      'Resend Legacy Test',
-      `<h1>Resend Legacy Test</h1>
-       <p>This uses the old Resend service - only works with verified emails.</p>
-       <p>Test email: ${testEmail}</p>`
-    );
-    
+    // ✅ CORRECT METHOD: .emails.send()
+    const response = await mailersend.emails.send({
+      from: {
+        email: 'noreply@test-ywj2lpm1o71g7oqz.mlsender.net',
+        name: "LockedIn Wits"
+      },
+      to: [
+        {
+          email: testEmail,
+          name: testEmail.split('@')[0]
+        }
+      ],
+      subject: 'Direct Mailersend Test - FIXED',
+      html: `
+        <h1>✅ Mailersend Method Fixed!</h1>
+        <p>This uses the correct <code>.emails.send()</code> method!</p>
+        <p><strong>To:</strong> ${testEmail}</p>
+        <p><strong>From:</strong> test-ywj2lpm1o71g7oqz.mlsender.net</p>
+        <p><strong>Time:</strong> ${new Date().toISOString()}</p>
+        <p>Your session booking system should now work! 🎉</p>
+      `,
+      text: `Direct Mailersend Test - Fixed method! Sent to ${testEmail} at ${new Date().toISOString()}`
+    });
+
     res.json({ 
       success: true, 
-      message: `Resend test completed for ${testEmail}`,
-      result,
-      note: 'Resend only works with verified student emails'
+      message: `✅ Direct Mailersend test successful!`,
+      details: {
+        email: testEmail,
+        domain: 'test-ywj2lpm1o71g7oqz.mlsender.net',
+        method: 'mailersend.emails.send()',
+        timestamp: new Date().toISOString()
+      },
+      response
     });
     
   } catch (error) {
-    console.error('Resend test failed:', error);
+    console.error('❌ Direct Mailersend test failed:', error);
     res.status(500).json({ 
       success: false, 
-      error: error.message
+      error: error.message,
+      note: 'Make sure MAILERSEND_API_KEY is set correctly'
     });
   }
 });
