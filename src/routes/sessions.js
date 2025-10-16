@@ -241,7 +241,7 @@ if (process.env.NODE_ENV === "test") {
     }
   };
 } else {
-  // Production: Use EmailJS with two templates
+  // Production: Use EmailJS with browser-like headers
   emailService = {
     sendEmail: async (to, subject, html, text, emailType = 'invitation', templateData = {}) => {
       try {
@@ -268,10 +268,14 @@ if (process.env.NODE_ENV === "test") {
           student_name: templateData.student_name || ''
         };
 
+        // FIX: Add browser-like headers to avoid 403 error
         const emailjsResponse = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Origin': 'https://your-app.vercel.app', // Replace with your actual frontend domain
+            'Referer': 'https://your-app.vercel.app/',
           },
           body: JSON.stringify({
             service_id: process.env.EMAILJS_SERVICE_ID,
