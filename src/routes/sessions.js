@@ -199,9 +199,19 @@
 
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
+import fetch from 'node-fetch';
 
 const router = express.Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+// Health check first to ensure service is running
+router.get("/health", (req, res) => {
+  res.json({ 
+    status: "OK", 
+    message: "Service is running",
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Keep your existing helper functions
 async function getUser(req) {
@@ -241,11 +251,19 @@ if (process.env.NODE_ENV === "test") {
     }
   };
 } else {
-  // Production: Use EmailJS with browser-like headers
+  // Production: Use EmailJS with proper Node.js fetch
   emailService = {
     sendEmail: async (to, subject, html, text, emailType = 'invitation', templateData = {}) => {
       try {
         console.log(`📧 Sending ${emailType} email to: ${to}`);
+
+        if (!process.env.EMAILJS_SERVICE_ID || !process.env.EMAILJS_USER_ID) {
+        console.error('❌ Missing EmailJS environment variables');
+        return { 
+          error: 'EmailJS configuration incomplete - check environment variables',
+          emailType: emailType
+        };
+      }
         
         // Choose template based on email type
         const templateId = emailType === 'conflict' 
@@ -268,14 +286,13 @@ if (process.env.NODE_ENV === "test") {
           student_name: templateData.student_name || ''
         };
 
-        // FIX: Add browser-like headers to avoid 403 error
+        // Use node-fetch or native fetch - ensure it's available
         const emailjsResponse = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Origin': 'https://your-app.vercel.app', // Replace with your actual frontend domain
-            'Referer': 'https://your-app.vercel.app/',
+            'Origin': 'https://lockedin-wits.vercel.app', // Your actual frontend
           },
           body: JSON.stringify({
             service_id: process.env.EMAILJS_SERVICE_ID,
@@ -316,70 +333,62 @@ async function sendEmailSafe(to, subject, html, text, emailType = 'invitation', 
 // Export for tests
 export { emailService };
 
-// 🆕 IMMEDIATE TEST ROUTE: EmailJS Test
+// 🆕 SIMPLE TEST ROUTE: EmailJS Test
 router.get("/emailJS-test", async (req, res) => {
   try {
     const testEmail = req.query.email || 'njam.arshia@gmail.com';
-    const testType = req.query.type || 'invitation'; // 'invitation' or 'conflict'
     
-    console.log(`🧪 Testing EmailJS with ${testType} template to: ${testEmail}`);
+    console.log(`🧪 Testing EmailJS to: ${testEmail}`);
     
-    let templateData;
-    
-    if (testType === 'conflict') {
-      // Test conflict template
-      templateData = {
-        recipient_name: "Test Creator",
-        session_time: new Date().toLocaleString(),
-        conflict_message: "Test Student has already accepted another session at this time.",
-        student_name: "Test Student"
-      };
-    } else {
-      // Test invitation template
-      templateData = {
-        recipient_name: "Test User", 
-        session_time: new Date().toLocaleString(),
-        venue: "Wits Library",
-        topic: "Computer Science Study Group",
-        time_goal: "120",
-        content_goal: "Complete Chapter 5 exercises",
-        organizer: "Test Organizer",
-        accept_link: "https://courses.ms.wits.ac.za/accept-test",
-        decline_link: "https://courses.ms.wits.ac.za/decline-test"
-      };
+    // Simple test without complex logic
+    const templateParams = {
+      to_email: testEmail,
+      subject: 'Simple EmailJS Test',
+      name: "Test User",
+      session_time: new Date().toLocaleString(),
+      topic: "Test Session",
+      venue: "Test Venue",
+      organizer: "Test Organizer",
+      action_url: "https://www.google.com",
+      support_url: "https://www.wits.ac.za"
+    };
+
+    const emailjsResponse = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Origin': 'https://lockedin-wits.vercel.app',
+      },
+      body: JSON.stringify({
+        service_id: process.env.EMAILJS_SERVICE_ID,
+        template_id: process.env.EMAILJS_INVITATION_TEMPLATE_ID,
+        user_id: process.env.EMAILJS_USER_ID,
+        template_params: templateParams
+      })
+    });
+
+    if (!emailjsResponse.ok) {
+      const errorText = await emailjsResponse.text();
+      throw new Error(`EmailJS API error: ${emailjsResponse.status} - ${errorText}`);
     }
-    
-    const result = await sendEmailSafe(
-      testEmail,
-      testType === 'conflict' ? '⚠️ Test Conflict Alert' : '📚 Test Session Invitation',
-      '', // HTML handled by template
-      `Test ${testType} email`, // Plain text fallback
-      testType,
-      templateData
-    );
-    
+
     res.json({ 
       success: true, 
-      message: `EmailJS ${testType} test completed for ${testEmail}`,
-      testDetails: {
-        email: testEmail,
-        type: testType,
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development',
-        templateUsed: testType === 'conflict' ? 'Conflict Template' : 'Invitation Template'
-      },
-      result
+      message: `Test email sent to ${testEmail}`,
+      status: emailjsResponse.status,
+      timestamp: new Date().toISOString()
     });
     
   } catch (error) {
     console.error('❌ EmailJS test failed:', error);
     res.status(500).json({ 
       success: false, 
-      error: error.message,
-      note: 'Check your EmailJS environment variables: SERVICE_ID, TEMPLATE_IDS, USER_ID'
+      error: error.message
     });
   }
 });
+
 
 // 🆕 Test both templates at once
 router.get("/emailJS-test-both", async (req, res) => {
