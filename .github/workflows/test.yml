@@ -20,6 +20,10 @@ jobs:
 
       - name: Run unit tests with coverage
         run: npm run test:unit -- --coverageDirectory=coverage/unit
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NODE_ENV: test
 
       - name: Save coverage file path
         id: coverage-path
