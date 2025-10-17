@@ -85,7 +85,7 @@ router.post("/login", async (req, res) => {
     if (profileError && profileError.code === 'PGRST116') {
       // Profile doesn't exist - user needs to sign up first
       console.log("No profile found, deleting auth user");
-      await supabase.auth.admin.deleteUser(user.id);
+      await supabase.auth.admin.deleteUser(user.id); 
       return res.status(401).json({ error: "User not found. Please sign up first." });
     }
 
@@ -156,5 +156,45 @@ router.post("/signup", async (req, res) => {
   }
 });
 
+// Add this to your backend auth.js
+router.post("/check-profile", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || "";
+    const accessToken = authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7)
+      : null;
+
+    if (!accessToken) {
+      return res.status(400).json({ error: "Missing access token" });
+    }
+
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    if (error || !user) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+
+    // Check if user has a profile record
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError && profileError.code === 'PGRST116') {
+      // Profile doesn't exist
+      return res.status(404).json({ error: "Profile not found" });
+    }
+
+    if (profileError) {
+      return res.status(500).json({ error: "Database error" });
+    }
+
+    // Profile exists
+    return res.json({ exists: true, user: { id: user.id, email: user.email } });
+  } catch (err) {
+    console.error("Check profile error:", err);
+    return res.status(500).json({ error: "Something went wrong" });
+  }
+});
 
 export default router;

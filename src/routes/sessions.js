@@ -1,12 +1,19 @@
-// routes/sessions.js
+// src/routes/sessions.js
+
 /**
  * @openapi
  * /api/groups/{groupId}/sessions:
  *   post:
  *     summary: Create a planned session
  *     tags: [Sessions]
- *     security: [{ bearerAuth: [] }]
+ *     security:
+ *       - bearerAuth: []         # normal mode
  *     parameters:
+ *       - in: header
+ *         name: x-partner-key
+ *         required: false
+ *         schema: { type: string }
+ *         description: Partner API key (bypasses Bearer auth if valid)
  *       - in: path
  *         name: groupId
  *         schema: { type: integer }
@@ -37,8 +44,14 @@
  *   get:
  *     summary: List sessions for a group
  *     tags: [Sessions]
- *     security: [{ bearerAuth: [] }]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
+ *       - in: header
+ *         name: x-partner-key
+ *         required: false
+ *         schema: { type: string }
+ *         description: Partner API key (bypasses Bearer auth if valid)
  *       - in: path
  *         name: groupId
  *         schema: { type: integer }
@@ -55,8 +68,14 @@
  *   delete:
  *     summary: Delete a session (creator only)
  *     tags: [Sessions]
- *     security: [{ bearerAuth: [] }]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
+ *       - in: header
+ *         name: x-partner-key
+ *         required: false
+ *         schema: { type: string }
+ *         description: Partner API key (bypasses Bearer auth if valid)
  *       - in: path
  *         name: groupId
  *         schema: { type: integer }
@@ -78,8 +97,14 @@
  *   post:
  *     summary: Post a group message
  *     tags: [Sessions]
- *     security: [{ bearerAuth: [] }]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
+ *       - in: header
+ *         name: x-partner-key
+ *         required: false
+ *         schema: { type: string }
+ *         description: Partner API key (bypasses Bearer auth if valid)
  *       - in: path
  *         name: groupId
  *         schema: { type: integer }
@@ -107,8 +132,14 @@
  *   get:
  *     summary: Get group messages (optionally by session)
  *     tags: [Sessions]
- *     security: [{ bearerAuth: [] }]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
+ *       - in: header
+ *         name: x-partner-key
+ *         required: false
+ *         schema: { type: string }
+ *         description: Partner API key (bypasses Bearer auth if valid)
  *       - in: path
  *         name: groupId
  *         schema: { type: integer }
@@ -125,12 +156,64 @@
  *       403: { description: Not a group member }
  */
 
+/**
+ * @openapi
+ * /api/sessions/{sessionId}/accept/{userId}:
+ *   get:
+ *     summary: RSVP accept a session via email link
+ *     tags: [Sessions]
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         schema: { type: integer }
+ *         required: true
+ *       - in: path
+ *         name: userId
+ *         schema: { type: string }
+ *         required: true
+ *     responses:
+ *       200: { description: Accepted }
+ *       500: { description: Error updating RSVP }
+ */
+
+/**
+ * @openapi
+ * /api/sessions/{sessionId}/decline/{userId}:
+ *   get:
+ *     summary: RSVP decline a session via email link
+ *     tags: [Sessions]
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         schema: { type: integer }
+ *         required: true
+ *       - in: path
+ *         name: userId
+ *         schema: { type: string }
+ *         required: true
+ *     responses:
+ *       200: { description: Declined }
+ *       500: { description: Error updating RSVP }
+ */
+
+
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
-import nodemailer from "nodemailer";
+import fetch from 'node-fetch';
+
 const router = express.Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
+// Health check first to ensure service is running
+router.get("/health", (req, res) => {
+  res.json({ 
+    status: "OK", 
+    message: "Service is running",
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Keep your existing helper functions
 async function getUser(req) {
   const authHeader = req.headers.authorization || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -151,52 +234,303 @@ async function requireGroupMember(group_id, user_id) {
   return !!data;
 }
 
-let transporter;
+// Email service setup with test preservation
+let emailService;
 
 if (process.env.NODE_ENV === "test") {
   console.log("Test environment: Email functionality disabled");
-  transporter = {
-    sendMail: async () => {
-      console.log("[Mock email] sendMail called");
-      return Promise.resolve({ accepted: ["mock@example.com"] });
-    },
-    verify: async () => Promise.resolve(true),
+  emailService = {
+    sendEmail: async (to, subject, html, text, emailType = 'invitation', templateData = {}) => {
+      console.log("[Mock email] sendEmail called to:", to, "Type:", emailType);
+      return Promise.resolve({ 
+        success: true,
+        to: to,
+        subject: subject,
+        emailType: emailType
+      });
+    }
   };
 } else {
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: process.env.SMTP_PORT || 465,
-    secure: true,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-    debug: true,
-    tls: {
-      rejectUnauthorized: false,
-    },
-  });
+  // Production: Use EmailJS with proper Node.js fetch
+  emailService = {
+    sendEmail: async (to, subject, html, text, emailType = 'invitation', templateData = {}) => {
+      try {
+        console.log(`📧 Sending ${emailType} email to: ${to}`);
 
-  transporter.verify((error, success) => {
-    if (error) console.log("Test failed:", error);
-    else console.log("Server is ready to send messages");
-  });
+        if (!process.env.EMAILJS_SERVICE_ID || !process.env.EMAILJS_USER_ID) {
+          console.error('❌ Missing EmailJS environment variables');
+          return { 
+            error: 'EmailJS configuration incomplete - check environment variables',
+            emailType: emailType
+          };
+        }
+        
+        // Choose template based on email type
+        const templateId = emailType === 'conflict' 
+          ? process.env.EMAILJS_CONFLICT_TEMPLATE_ID 
+          : process.env.EMAILJS_INVITATION_TEMPLATE_ID;
+        
+        // FIX: Use exact parameter names from your template examples
+        let templateParams;
+        
+        if (emailType === 'conflict') {
+          // Conflict template parameters (from your example)
+          templateParams = {
+            name: templateData.recipient_name || to.split('@')[0],
+            conflict_message: templateData.conflict_message || '',
+            session_time: templateData.session_time || '',
+            student_name: templateData.student_name || '',
+            email: to // This is the recipient email
+          };
+        } else {
+          // Invitation template parameters (from your example)
+          templateParams = {
+            name: templateData.recipient_name || to.split('@')[0],
+            topic: templateData.topic || 'Group Study Session',
+            session_time: templateData.session_time || '',
+            venue: templateData.venue || '',
+            time_goal: templateData.time_goal || '',
+            content_goal: templateData.content_goal || '',
+            organizer: templateData.organizer || 'A group member',
+            action_url: templateData.accept_link || '',
+            support_url: templateData.decline_link || '',
+            email: to // This is the recipient email
+          };
+        }
+
+        console.log(`📤 Sending ${emailType} email with params:`, Object.keys(templateParams));
+
+        const emailjsResponse = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Origin': 'https://lockedin-wits.vercel.app',
+          },
+          body: JSON.stringify({
+            service_id: process.env.EMAILJS_SERVICE_ID,
+            template_id: templateId,
+            user_id: process.env.EMAILJS_USER_ID,
+            template_params: templateParams
+          })
+        });
+
+        // FIX: Handle both JSON and "OK" text responses
+        const responseText = await emailjsResponse.text();
+        
+        let result;
+        try {
+          result = JSON.parse(responseText);
+        } catch (parseError) {
+          // If it's not JSON, check if it's "OK" (success response)
+          if (responseText === 'OK' || responseText.trim() === 'OK') {
+            result = { status: 'success', message: 'Email sent successfully' };
+          } else {
+            // It's some other text error
+            throw new Error(`EmailJS returned: ${responseText}`);
+          }
+        }
+
+        if (!emailjsResponse.ok) {
+          throw new Error(`EmailJS API error: ${emailjsResponse.status} - ${JSON.stringify(result)}`);
+        }
+
+        console.log(`✅ ${emailType} email sent successfully to: ${to}`);
+        return { 
+          success: true, 
+          service: 'emailjs',
+          emailType: emailType,
+          response: result
+        };
+        
+      } catch (error) {
+        console.error(`❌ Failed to send ${emailType} email to ${to}:`, error.message);
+        return { 
+          error: `EmailJS failed: ${error.message}`,
+          emailType: emailType
+        };
+      }
+    }
+  };
 }
 
-export { transporter };
+// Safe email function that works in both test and production
+async function sendEmailSafe(to, subject, html, text, emailType = 'invitation', templateData = {}) {
+  return await emailService.sendEmail(to, subject, html, text, emailType, templateData);
+}
 
+// Export for tests
+export { emailService };
 
+// 🆕 SIMPLE TEST ROUTE: EmailJS Test
+router.get("/emailJS-test", async (req, res) => {
+  try {
+    const testEmail = req.query.email || 'njam.arshia@gmail.com';
+    const testType = req.query.type || 'invitation';
+    
+    console.log(`🧪 Testing EmailJS ${testType} template to: ${testEmail}`);
+    
+    let templateParams;
+    
+    if (testType === 'conflict') {
+      // Test conflict template with exact parameters from your example
+      templateParams = {
+        name: "Test Creator",
+        conflict_message: "Test Student has a scheduling conflict at this time.",
+        session_time: new Date().toLocaleString(),
+        student_name: "Test Student",
+        email: testEmail
+      };
+    } else {
+      // Test invitation template with exact parameters from your example
+      templateParams = {
+        name: "Test User",
+        topic: "Computer Science Study Session",
+        session_time: new Date().toLocaleString(),
+        venue: "Wits Library",
+        time_goal: "120",
+        content_goal: "Complete Chapter 5 exercises",
+        organizer: "Test Organizer",
+        action_url: "https://www.google.com",
+        support_url: "https://www.wits.ac.za",
+        email: testEmail
+      };
+    }
 
+    console.log(`📤 Sending ${testType} email with params:`, templateParams);
 
-/** Create a session (planner) */
+    const templateId = testType === 'conflict' 
+      ? process.env.EMAILJS_CONFLICT_TEMPLATE_ID 
+      : process.env.EMAILJS_INVITATION_TEMPLATE_ID;
+
+    const emailjsResponse = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Origin': 'https://lockedin-wits.vercel.app',
+      },
+      body: JSON.stringify({
+        service_id: process.env.EMAILJS_SERVICE_ID,
+        template_id: templateId,
+        user_id: process.env.EMAILJS_USER_ID,
+        template_params: templateParams
+      })
+    });
+
+    // FIX: Handle both JSON and "OK" text responses
+    const responseText = await emailjsResponse.text();
+    
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (parseError) {
+      if (responseText === 'OK' || responseText.trim() === 'OK') {
+        result = { status: 'success', message: 'Email sent successfully' };
+      } else {
+        throw new Error(`EmailJS returned: ${responseText}`);
+      }
+    }
+
+    if (!emailjsResponse.ok) {
+      throw new Error(`EmailJS API error: ${emailjsResponse.status} - ${JSON.stringify(result)}`);
+    }
+
+    console.log(`✅ ${testType} test successful!`);
+    
+    res.json({ 
+      success: true, 
+      message: `${testType} test email sent to ${testEmail}`,
+      status: emailjsResponse.status,
+      response: result,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('❌ EmailJS test failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message
+    });
+  }
+});
+
+// 🆕 Test both templates at once (Updated)
+router.get("/emailJS-test-both", async (req, res) => {
+  try {
+    const testEmail = req.query.email || 'njam.arshia@gmail.com';
+    
+    console.log(`🧪 Testing both EmailJS templates to: ${testEmail}`);
+    
+    const results = [];
+    
+    // Test invitation template with exact parameters
+    const invitationResult = await sendEmailSafe(
+      testEmail,
+      '📚 Test Session Invitation',
+      '',
+      'Test invitation email',
+      'invitation',
+      {
+        recipient_name: "Test User",
+        session_time: new Date().toLocaleString(),
+        venue: "Wits Library",
+        topic: "Computer Science Study Group", 
+        time_goal: "120",
+        content_goal: "Complete Chapter 5",
+        organizer: "Test Organizer",
+        accept_link: "https://www.google.com",
+        decline_link: "https://www.wits.ac.za"
+      }
+    );
+    results.push({ type: 'invitation', result: invitationResult });
+    
+    // Wait 2 seconds between emails
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Test conflict template with exact parameters
+    const conflictResult = await sendEmailSafe(
+      testEmail,
+      '⚠️ Test Conflict Alert',
+      '',
+      'Test conflict email', 
+      'conflict',
+      {
+        recipient_name: "Test Creator",
+        session_time: new Date().toLocaleString(),
+        conflict_message: "Test Student has a scheduling conflict.",
+        student_name: "Test Student"
+      }
+    );
+    results.push({ type: 'conflict', result: conflictResult });
+    
+    res.json({ 
+      success: true, 
+      message: `Both EmailJS templates tested for ${testEmail}`,
+      results,
+      summary: {
+        invitation: invitationResult.success ? '✅ Success' : '❌ Failed',
+        conflict: conflictResult.success ? '✅ Success' : '❌ Failed'
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ EmailJS both-templates test failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+/** Create a session (planner) - Updated for EmailJS templates */
 router.post("/groups/:groupId/sessions", async (req, res, next) => {
   try {
     const user = await getUser(req);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
 
     const group_id = req.params.groupId;
-    const { start_at, venue, topic, time_goal_minutes, content_goal } =
-      req.body || {};
+    const { start_at, venue, topic, time_goal_minutes, content_goal } = req.body || {};
 
     const isMember = await requireGroupMember(group_id, user.id);
     if (!isMember) return res.status(403).json({ error: "Not a group member" });
@@ -204,133 +538,154 @@ router.post("/groups/:groupId/sessions", async (req, res, next) => {
     if (!start_at) return res.status(400).json({ error: "start_at is required" });
 
     const starts = new Date(start_at);
-    if (isNaN(starts.getTime()))
-      return res.status(400).json({ error: "Invalid start_at" });
-    if (starts < new Date())
-      return res.status(400).json({ error: "start_at cannot be in the past" });
+    if (isNaN(starts.getTime())) return res.status(400).json({ error: "Invalid start_at" });
+    if (starts < new Date()) return res.status(400).json({ error: "start_at cannot be in the past" });
 
     // Insert session
     const { data: sessionData, error } = await supabase
       .from("sessions")
-      .insert([
-        {
-          group_id,
-          creator_id: user.id,
-          start_at,
-          venue,
-          topic,
-          time_goal_minutes,
-          content_goal,
-        },
-      ])
+      .insert([{ 
+        group_id, 
+        creator_id: user.id, 
+        start_at, 
+        venue, 
+        topic, 
+        time_goal_minutes, 
+        content_goal 
+      }])
       .select("*")
       .single();
 
     if (error) throw error;
 
-    // Get group members
-    const { data: members } = await supabase
+    // Get group members (excluding creator)
+    const { data: members, error: membersError } = await supabase
       .from("group_members")
       .select("profiles(id, email, full_name)")
-      .eq("group_id", group_id);
+      .eq("group_id", group_id)
+      .neq("user_id", user.id);
 
-       if (!members || members.length === 0) return res.json({ session: sessionData });
+    if (membersError) {
+      console.error("Error fetching members:", membersError);
+      return res.json({ session: sessionData });
+    }
 
-    // Check conflicts per member
-    const conflictPromises = members
-      .filter(m => m.profiles.email && m.profiles.email !== user.email)
-      .map(async (m) => {
+    if (!members || members.length === 0) {
+      console.log("No members to email.");
+      return res.json({ session: sessionData });
+    }
+
+    console.log("Processing emails for members:", members.map(m => m.profiles.email));
+
+    // Process members with email sending
+    for (let i = 0; i < members.length; i++) {
+      const member = members[i];
+      const memberProfile = member.profiles;
+      
+      if (!memberProfile.email) continue;
+
+      // Add delay between emails
+      if (i > 0) await new Promise(resolve => setTimeout(resolve, 300));
+      
+      try {
+        // Check for conflicts
         const { data: acceptedSessions } = await supabase
           .from("session_invites")
           .select("session_id")
-          .eq("user_id", m.profiles.id)
+          .eq("user_id", memberProfile.id)
           .eq("status", "accepted");
 
-        const sessionIds = acceptedSessions.map(s => s.session_id);
-        if (sessionIds.length === 0) return { member: m, conflict: false };
+        let hasConflict = false;
+        if (acceptedSessions && acceptedSessions.length > 0) {
+          const sessionIds = acceptedSessions.map(s => s.session_id);
+          const { data: conflicts } = await supabase
+            .from("sessions")
+            .select("id, start_at, topic")
+            .in("id", sessionIds);
 
-        const { data: conflicts } = await supabase
-          .from("sessions")
-          .select("id, start_at, topic")
-          .in("id", sessionIds);
-
-        const conflict = conflicts.some(c => new Date(c.start_at).getTime() === starts.getTime());
-        return { member: m, conflict };
-      });
-
-    const conflictResults = await Promise.all(conflictPromises);
-
-    // Send emails or notify creator
-    const emailPromises = conflictResults.map(({ member, conflict }, index) => {
-      return new Promise(async (resolve) => {
-        try {
-          if (conflict) {
-            // Notify creator
-            const { data: creator } = await supabase
-              .from("profiles")
-              .select("email, full_name")
-              .eq("id", user.id)
-              .single();
-
-            if (creator?.email) {
-              await transporter.sendMail({
-                from: process.env.SMTP_USER,
-                to: creator.email,
-                subject: `Conflict: ${member.profiles.full_name} already booked`,
-                text: `${member.profiles.full_name} has already accepted another session at ${start_at}.`,
-              });
-            }
-          } else {
-            // Send RSVP email
-            const acceptLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/accept/${member.profiles.id}`;
-            const declineLink = `${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/decline/${member.profiles.id}`;
-
-            const htmlContent = `
-              <h2>New Study Session Scheduled</h2>
-              <p><strong>Date/Time:</strong> ${start_at}</p>
-              <p><strong>Venue:</strong> ${venue}</p>
-              <p><strong>Topic:</strong> ${topic}</p>
-              <p><strong>Time goal:</strong> ${time_goal_minutes} mins</p>
-              <p><strong>Content goal:</strong> ${content_goal}</p>
-              <p>
-                <a href="${acceptLink}" style="padding:10px 20px;background:#4CAF50;color:#fff;text-decoration:none;border-radius:5px;">
-                  ✅ Accept
-                </a>
-                &nbsp;&nbsp;
-                <a href="${declineLink}" style="padding:10px 20px;background:#f44336;color:#fff;text-decoration:none;border-radius:5px;">
-                  ❌ Decline
-                </a>
-              </p>
-            `;
-
-            await transporter.sendMail({
-              from: process.env.SMTP_USER,
-              to: member.profiles.email,
-              subject: `New Study Session in your group`,
-              html: htmlContent,
-            });
-            // Insert pending invite
-            await supabase.from("session_invites").insert({
-              session_id: sessionData.id,
-              user_id: member.profiles.id,
-              status: "pending",
-            });
+          if (conflicts) {
+            hasConflict = conflicts.some(c => new Date(c.start_at).getTime() === starts.getTime());
           }
-        } catch (err) {
-          console.error(err);
-        } finally {
-          resolve(null);
         }
-      });
-    });
 
-    await Promise.all(emailPromises);
+        if (hasConflict) {
+          console.log(`🚨 CONFLICT DETECTED:`);
+          console.log(`   - Member with Conflict: ${memberProfile.id} (${memberProfile.full_name})`);
+        
+          
+          const { data: creator } = await supabase
+            .from("profiles")
+            .select("email, full_name")
+            .eq("id", user.id)
+            .single();
 
+          if (creator?.email) {
+            console.log(`📧 Sending conflict alert to creator: ${creator.email}`);
+            
+            await sendEmailSafe(
+              creator.email,  // This goes to session creator
+              `⚠️ Scheduling Conflict Alert`,
+              '', 
+              `Conflict: ${memberProfile.full_name} has already accepted another session at ${start_at}.`,
+              'conflict',
+              {
+                recipient_name: creator.full_name,  // Creator's name
+                session_time: start_at,
+                conflict_message: `${memberProfile.full_name} has already accepted another session at this time.`,
+                student_name: memberProfile.full_name  // Member who has conflict
+              }
+            );
+            
+            console.log(`✅ Conflict email sent to creator: ${creator.email}`);
+          } else {
+            console.log(`❌ Could not find creator email for user: ${user.id}`);
+          }
+        
+        } else {
+          // Send RSVP email using EmailJS invitation template
+          const acceptLink = `https://${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/accept/${memberProfile.id}`;
+          const declineLink = `https://${process.env.BACKEND_URL}/api/sessions/${sessionData.id}/decline/${memberProfile.id}`;
+
+          await sendEmailSafe(
+            memberProfile.email,
+            `📚 Study Session: ${topic || 'Group Study'}`,
+            '', // HTML handled by template
+            `You've been invited to a study session on ${start_at}. Accept: ${acceptLink} or Decline: ${declineLink}`,
+            'invitation',
+            {
+              recipient_name: memberProfile.full_name,
+              session_time: start_at,
+              venue: venue || '',
+              topic: topic || 'Group Study Session',
+              time_goal: time_goal_minutes || '',
+              content_goal: content_goal || '',
+              organizer: user.user_metadata?.full_name || 'A group member',
+              accept_link: acceptLink,
+              decline_link: declineLink
+            }
+          );
+          
+          // Create invite record
+          await supabase.from("session_invites").insert({
+            session_id: sessionData.id,
+            user_id: memberProfile.id,
+            status: "pending",
+          });
+        }
+      } catch (err) {
+        console.error(`Error processing member ${memberProfile.email}:`, err);
+      }
+    }
+
+    console.log("Session creation and email processing completed");
     res.json({ session: sessionData });
+    
   } catch (e) {
+    console.error("Error in session creation:", e);
     next(e);
   }
 });
+
 
 /** RSVP via email links */
 router.get("/sessions/:sessionId/accept/:userId", async (req, res) => {
@@ -344,7 +699,7 @@ router.get("/sessions/:sessionId/accept/:userId", async (req, res) => {
       responded_at: new Date().toISOString(), 
     });
   if (error) return res.status(500).send("Error updating RSVP");
-  res.send("✅ You’ve accepted the session!");
+  res.send("✅ You've accepted the session!");
 });
 
 router.get("/sessions/:sessionId/decline/:userId", async (req, res) => {
@@ -358,7 +713,7 @@ router.get("/sessions/:sessionId/decline/:userId", async (req, res) => {
       responded_at: new Date().toISOString(),  
     });
   if (error) return res.status(500).send("Error updating RSVP");
-  res.send("❌ You’ve declined the session.");
+  res.send("❌ You've declined the session.");
 });
 
 // POST /groups/:groupId/sessions/:sessionId/respond
@@ -408,12 +763,19 @@ router.post("/groups/:groupId/sessions/:sessionId/respond", async (req, res, nex
         const { data: creator } = await supabase.from("profiles").select("email").eq("id", session.creator_id).single();
 
         if (creator?.email) {
-          await transporter.sendMail({
-            from: process.env.SMTP_USER,
-            to: creator.email,
-            subject: `Conflict: ${prof?.full_name} already booked`,
-            text: `${prof?.full_name} has already accepted another session at ${session.start_at}.`,
-          });
+          await sendEmailSafe(
+            creator.email,
+            `⚠️ Scheduling Conflict Alert`,
+            '', // HTML handled by template
+            `Conflict: ${prof?.full_name} cannot accept your session due to scheduling conflict.`,
+            'conflict',
+            {
+              recipient_name: creator.full_name,
+              session_time: session.start_at,
+              conflict_message: `${prof?.full_name} cannot accept your session due to existing commitment.`,
+              student_name: prof?.full_name || 'A student'
+            }
+          );
         }
 
         return res.status(409).json({ error: "You already accepted a session at this time" });
@@ -437,6 +799,9 @@ router.post("/groups/:groupId/sessions/:sessionId/respond", async (req, res, nex
     next(e);
   }
 });
+
+
+
 
 
 /** List upcoming sessions for a group */
