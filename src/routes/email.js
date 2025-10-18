@@ -212,36 +212,93 @@ router.get("/health", (req, res) => {
 
 /**
  * @openapi
- * /api/email/send:
- *   post:
- *     summary: Send an email using LockedIn's email service
- *     description: Public API endpoint for external teams to send emails. Uses existing invitation template layout.
- *     tags: [Email]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/EmailRequest'
- *     responses:
- *       200:
- *         description: Email sent successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/EmailResponse'
- *       400:
- *         description: Bad request - missing or invalid parameters
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
+ * components:
+ *   schemas:
+ *     EmailRequest:
+ *       type: object
+ *       required:
+ *         - to
+ *         - subject
+ *         - message
+ *       properties:
+ *         to:
+ *           type: string
+ *           format: email
+ *           example: "user@example.com"
+ *         subject:
+ *           type: string
+ *           example: "Study Session Invitation"
+ *         message:
+ *           type: string
+ *           example: "You're invited to join our study session"
+ *         recipient_name:
+ *           type: string
+ *           example: "John Doe"
+ *         topic:
+ *           type: string
+ *           example: "Mathematics Study Group"
+ *         session_time:
+ *           type: string
+ *           example: "2024-01-20 14:00"
+ *         venue:
+ *           type: string
+ *           example: "Library Room 301"
+ *         time_goal:
+ *           type: string
+ *           example: "120 minutes"
+ *         content_goal:
+ *           type: string
+ *           example: "Complete calculus chapter 5 exercises"
+ *         organizer:
+ *           type: string
+ *           example: "Math Department"
+ *         # Note: action_url and support_url are now fixed to RaceIQ URLs
+ *     EmailResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
+ *         message:
+ *           type: string
+ *           example: "Email sent successfully"
+ *         to:
+ *           type: string
+ *           example: "user@example.com"
+ *         subject:
+ *           type: string
+ *           example: "Study Session Invitation"
+ *         service:
+ *           type: string
+ *           example: "emailjs"
+ *         template_params:
+ *           type: object
+ *           description: "The actual template parameters sent to EmailJS"
+ *           example:
+ *             name: "John Doe"
+ *             topic: "Mathematics Study Group"
+ *             session_time: "2024-01-20 14:00"
+ *             venue: "Library Room 301"
+ *             time_goal: "120 minutes"
+ *             content_goal: "Complete calculus chapter 5 exercises"
+ *             organizer: "Race IQ Team"
+ *             action_url: "https://race-iq.vercel.app"
+ *             support_url: "https://race-iq.vercel.app"
+ *         note:
+ *           type: string
+ *           example: "Sent using invitation template layout"
+ *     ErrorResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: false
+ *         error:
+ *           type: string
+ *           example: "Missing required fields"
+ *         template_params:
+ *           type: object
+ *           description: "Template parameters that were attempted"
  */
 router.post("/send", async (req, res) => {
   try {
