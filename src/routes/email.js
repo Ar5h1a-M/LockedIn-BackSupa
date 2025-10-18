@@ -103,15 +103,15 @@ if (process.env.NODE_ENV === "test") {
 
         // Use the existing invitation template but make everything dynamic
         const templateParams = {
-          name: templateData.recipient_name || to.split('@')[0],
-          topic: templateData.subject || subject || 'Message from LockedIn',
-          session_time: templateData.message ? `Message: ${templateData.message}` : 'You have a new message',
-          venue: templateData.from_name || 'LockedIn Team',
-          time_goal: templateData.custom_field_1 || '',
-          content_goal: templateData.message || text || html || 'No message content provided',
-          organizer: templateData.from_name || 'LockedIn Team',
-          action_url: templateData.action_url || 'https://lockedin-wits.vercel.app',
-          support_url: templateData.support_url || 'https://lockedin-wits.vercel.app/support',
+          name: templateData.name || to.split('@')[0],
+          topic: templateData.topic || subject || 'Message from LockedIn',
+          session_time: templateData.session_time ||'',
+          venue: templateData.venue || 'LockedIn Team',
+          time_goal: templateData.time_goal || '',
+          content_goal: templateData.content_goal ||'',
+          organizer: 'Race IQ Team',
+          action_url: 'https://race-iq.vercel.app',
+          support_url: 'https://race-iq.vercel.app',
           email: to
         };
 
@@ -245,7 +245,24 @@ router.get("/health", (req, res) => {
  */
 router.post("/send", async (req, res) => {
   try {
-    const { to, subject, message, recipient_name, from_name, action_url, support_url, ...otherParams } = req.body;
+    const { 
+      to, 
+      subject, 
+      message, 
+      recipient_name, 
+      from_name, 
+      action_url, 
+      support_url,
+      // Template-specific parameters that match your EmailJS template
+      topic,
+      session_time, 
+      venue, 
+      time_goal, 
+      content_goal,
+      organizer,
+      // Catch all other dynamic parameters
+      ...otherParams 
+    } = req.body;
 
     // Validate required fields
     if (!to || !subject || !message) {
@@ -266,17 +283,25 @@ router.post("/send", async (req, res) => {
 
     console.log(`📧 Public API: Sending email to ${to}`);
 
-    const templateData = {
-      recipient_name: recipient_name || to.split('@')[0],
-      subject: subject,
-      message: message,
-      from_name: from_name || 'LockedIn Team',
-      action_url: action_url || 'https://lockedin-wits.vercel.app',
-      support_url: support_url || 'https://lockedin-wits.vercel.app/support',
+    // Use the same template parameter structure as emailJS-test
+    const templateParams = {
+      name: recipient_name || to.split('@')[0],
+      topic: topic || subject, // Use topic if provided, otherwise fall back to subject
+      session_time: session_time || '',
+      venue: venue || '',
+      time_goal: time_goal || '',
+      content_goal: content_goal || message, // Use message as content_goal if not provided
+      organizer:  'Race IQ Team',
+      action_url:  'https://race-iq.vercel.app',
+      support_url:  'https://race-iq.vercel.app',
+      email: to,
+      // Include any additional dynamic parameters from other teams
       ...otherParams
     };
 
-    const result = await sendEmailSafe(to, subject, message, message, templateData);
+    console.log(`📤 Sending email using invitation template with params:`, templateParams);
+
+    const result = await sendEmailSafe(to, subject, message, message, templateParams);
 
     if (result.success) {
       res.json({
@@ -285,13 +310,15 @@ router.post("/send", async (req, res) => {
         to: to,
         subject: subject,
         service: result.service,
+        template_params: templateParams, // Return the template params for debugging
         note: "Sent using invitation template layout"
       });
     } else {
       res.status(500).json({
         success: false,
         error: result.error || "Failed to send email",
-        to: to
+        to: to,
+        template_params: templateParams // Include template params in error for debugging
       });
     }
 
