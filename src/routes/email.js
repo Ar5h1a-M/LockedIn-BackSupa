@@ -104,14 +104,14 @@ if (process.env.NODE_ENV === "test") {
         // Use the existing invitation template but make everything dynamic
         const templateParams = {
           name: templateData.recipient_name || to.split('@')[0],
-          topic: templateData.topic || 'Race info',
-          session_time: templateData.session_time || '',
-          venue: templateData.venue || '',
-          time_goal: templateData.time_goal || '',
-          content_goal: templateData.content_goal || '',
-          organizer: 'RaceIQ Team',
-          action_url: 'https://race-iq.vercel.app',
-          support_url:  'https://race-iq.vercel.app',
+          topic: templateData.subject || subject || 'Message from LockedIn',
+          session_time: templateData.message ? `Message: ${templateData.message}` : 'You have a new message',
+          venue: templateData.from_name || 'LockedIn Team',
+          time_goal: templateData.custom_field_1 || '',
+          content_goal: templateData.message || text || html || 'No message content provided',
+          organizer: templateData.from_name || 'LockedIn Team',
+          action_url: templateData.action_url || 'https://lockedin-wits.vercel.app',
+          support_url: templateData.support_url || 'https://lockedin-wits.vercel.app/support',
           email: to
         };
 
